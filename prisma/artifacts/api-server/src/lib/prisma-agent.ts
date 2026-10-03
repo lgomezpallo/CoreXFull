@@ -4,10 +4,13 @@ import {
   getProviderHeaders,
 } from "./ai-provider";
 import {
+  corexCreateFile,
   corexListTree,
+  corexManagedWriteSetup,
   corexReadFile,
   corexSearch,
   corexToolStatus,
+  corexWriteFile,
 } from "./corex-tools";
 import { createChangeRequest } from "./prisma-change-requests";
 import {
@@ -72,7 +75,15 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_status",
-      description: "Informa qué repositorio y rama puede inspeccionar Prisma y si la escritura está habilitada.",
+      description: "Informa el repositorio, rama, alcance y estado básico de las herramientas de CoreX.",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "corex_write_status",
+      description: "Comprueba la identidad SSH administrada por Prisma y si GitHub ya autorizó escritura para CoreX. Devuelve sólo la clave pública, nunca la privada.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -135,6 +146,41 @@ const TOOL_DEFINITIONS = [
       },
     },
   },
+  {
+    type: "function",
+    function: {
+      name: "corex_write_file",
+      description: "APLICA una modificación a un archivo existente dentro de corex/. Úsala sólo cuando el usuario haya pedido explícitamente modificar, corregir o aplicar el cambio. Debes haber leído el archivo actual y usar exactamente su SHA.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          expectedSha: { type: "string" },
+          content: { type: "string" },
+          message: { type: "string" },
+        },
+        required: ["path", "expectedSha", "content", "message"],
+        additionalProperties: false,
+      },
+    },
+  },
+  {
+    type: "function",
+    function: {
+      name: "corex_create_file",
+      description: "CREA un archivo nuevo dentro de corex/. Úsala sólo cuando el usuario haya pedido explícitamente implementar un cambio que requiera ese archivo y hayas verificado antes la estructura de CoreX.",
+      parameters: {
+        type: "object",
+        properties: {
+          path: { type: "string" },
+          content: { type: "string" },
+          message: { type: "string" },
+        },
+        required: ["path", "content", "message"],
+        additionalProperties: false,
+      },
+    },
+  },
 ] as const;
 
 function asObject(value: unknown): Record<string, unknown> {
@@ -174,6 +220,8 @@ async function executeTool(call: ToolCall): Promise<unknown> {
       });
     case "corex_status":
       return corexToolStatus();
+    case "corex_write_status":
+      return corexManagedWriteSetup();
     case "corex_read_file":
       return corexReadFile(textArg(args, "path"));
     case "corex_list_tree":
@@ -189,6 +237,19 @@ async function executeTool(call: ToolCall): Promise<unknown> {
         expectedSha: textArg(args, "expectedSha"),
         proposedContent: textArg(args, "proposedContent"),
         reason: textArg(args, "reason"),
+      });
+    case "corex_write_file":
+      return corexWriteFile({
+        path: textArg(args, "path"),
+        expectedSha: textArg(args, "expectedSha"),
+        content: textArg(args, "content"),
+        message: textArg(args, "message"),
+      });
+    case "corex_create_file":
+      return corexCreateFile({
+        path: textArg(args, "path"),
+        content: textArg(args, "content"),
+        message: textArg(args, "message"),
       });
     default:
       throw new Error(`Herramienta desconocida: ${call.function.name}`);
@@ -227,9 +288,12 @@ export async function runPrismaAgent(input: {
     "Responde en español por defecto y de forma directa.",
     "Tu memoria persistente es parte de tu contexto operativo. Consulta memoria cuando una decisión anterior pueda afectar la respuesta.",
     "No inventes el estado de CoreX: si depende del código actual, usa herramientas de lectura/búsqueda.",
-    "Antes de proponer una modificación de CoreX, recupera memoria relevante, lee el archivo actual y conserva su SHA.",
-    "No apliques cambios a ciegas: prepara una solicitud de cambio con razón explícita y SHA esperado.",
+    "Antes de proponer o aplicar una modificación de CoreX, recupera memoria relevante, inspecciona la estructura necesaria y lee el archivo actual cuando exista.",
     "Preserva el principio fundamental de CoreX: construir desglosando operaciones pequeñas, sin convertir el trabajo en una única tarea gigante de programación.",
+    "No escribas en CoreX por iniciativa propia. Sólo usa corex_write_file o corex_create_file cuando el pedido actual del usuario exija explícitamente aplicar, modificar, corregir, arreglar o implementar algo en CoreX.",
+    "Para modificar un archivo existente debes haberlo leído en esta misma solicitud y usar exactamente el SHA devuelto por corex_read_file. Si el SHA cambió, relee y reevalúa antes de intentar otra vez.",
+    "Si el usuario sólo consulta, pide diagnóstico, opinión o propuesta, limita tu acción a leer, buscar, recordar y, si corresponde, corex_prepare_change; no escribas.",
+    "Después de un cambio aplicado correctamente, conserva en memoria la decisión o motivo arquitectónico relevante si puede afectar trabajo futuro.",
     input.mode === "document"
       ? "Si el usuario pide un documento, redacta el documento completo."
       : "Mantén una conversación práctica y orientada a resolver.",

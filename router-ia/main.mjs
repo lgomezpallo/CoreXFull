@@ -89,6 +89,31 @@ async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetc
   }
 }
 
+async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis.fetch }) {
+  if (process.env.ROUTER_CLOUDFLARE_IMAGE_SMOKE !== "1") return;
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/images/generations`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${appToken}`, "content-type": "application/json" },
+      body: JSON.stringify({
+        model: "@cf/black-forest-labs/flux-1-schnell",
+        prompt: "A small red circle centered on a plain white background",
+      }),
+      signal: AbortSignal.timeout(100_000),
+    });
+    if (!response.ok) {
+      console.error(`ROUTER_IMAGE_SMOKE_FAIL status=${response.status}`);
+      return;
+    }
+    const payload = await response.json();
+    const encoded = payload?.data?.[0]?.b64_json;
+    if (typeof encoded === "string" && encoded.length > 100) console.log("ROUTER_IMAGE_SMOKE_OK");
+    else console.error("ROUTER_IMAGE_SMOKE_FAIL invalid_response");
+  } catch (error) {
+    console.error(`ROUTER_IMAGE_SMOKE_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
 async function runStartupCapabilityAudit() {
   if (process.env.ROUTER_PROVIDER_CAPABILITY_AUDIT !== "1") return;
   const providerStore = createProviderStoreFromEnvironment();
@@ -139,6 +164,7 @@ if (isMain) {
       server.listen(port, "0.0.0.0", () => {
         console.log(`Router IA listening on port ${port}.`);
         void runStartupSmokeTest({ port, appToken });
+        void runStartupImageSmokeTest({ port, appToken });
         void runStartupCloudflareSync();
         void runStartupCapabilityAudit();
       });

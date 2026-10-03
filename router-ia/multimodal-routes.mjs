@@ -1,5 +1,7 @@
 import { timingSafeEqual } from "node:crypto";
 import {
+  isCloudflareWorkersAiBaseUrl,
+  isCloudflareWorkersAiFreeModel,
   isExplicitlyFreeModel,
   isGroqFreePlanModel,
   isNvidiaApiCatalogBaseUrl,
@@ -12,6 +14,7 @@ const MAX_JSON_RESPONSE_BYTES = 10_000_000;
 const MAX_BINARY_RESPONSE_BYTES = 26_214_400;
 const GROQ_FREE_PLAN_METADATA = "groq_free_plan";
 const NVIDIA_COMPLETION_METADATA = "nvidia_api_catalog_prototyping";
+const CLOUDFLARE_FREE_METADATA = "cloudflare_workers_ai_free";
 
 function sendJson(response, statusCode, value) {
   const body = JSON.stringify(value);
@@ -52,37 +55,44 @@ function hasExplicitFreeEligibility(provider) {
   if (
     metadata?.freePlanAccess === GROQ_FREE_PLAN_METADATA &&
     isGroqFreePlanModel({ id: provider.model }, provider.baseUrl)
-  ) {
-    return true;
-  }
+  ) return true;
   if (
     metadata?.freePlanAccess === NVIDIA_COMPLETION_METADATA &&
     isNvidiaApiCatalogBaseUrl(provider.baseUrl)
-  ) {
-    return true;
-  }
+  ) return true;
+  if (
+    metadata?.freePlanAccess === CLOUDFLARE_FREE_METADATA &&
+    isCloudflareWorkersAiFreeModel({ id: provider.model }, provider.baseUrl)
+  ) return true;
   return isExplicitlyFreeModel({ pricing: metadata?.pricing });
+}
+
+function verificationRank(provider, capability) {
+  const status = provider?.modelMetadata?.capabilityVerification?.checks?.[capability]?.status;
+  if (status === "verified") return 2;
+  if (["unsupported", "retired", "blocked"].includes(status)) return 0;
+  return 1;
 }
 
 function getEligibleProviders(activeProviders, capability) {
   return activeProviders
-    .filter(
-      (candidate) =>
-        candidate?.active === true &&
-        typeof candidate.model === "string" &&
-        candidate.model.length > 0 &&
-        candidate.model.trim() === candidate.model &&
-        Array.isArray(candidate.capabilities) &&
-        candidate.capabilities.includes(capability) &&
-        typeof candidate.apiKey === "string" &&
-        candidate.apiKey.length > 0 &&
-        hasExplicitFreeEligibility(candidate) &&
-        isSafeProviderBaseUrl(candidate.baseUrl),
-    )
-    .sort(
-      (first, second) =>
-        (Number(second.priority) || 0) - (Number(first.priority) || 0),
-    );
+    .filter((candidate) =>
+      candidate?.active === true &&
+      typeof candidate.model === "string" &&
+      candidate.model.length > 0 &&
+      candidate.model.trim() === candidate.model &&
+      Array.isArray(candidate.capabilities) &&
+      candidate.capabilities.includes(capability) &&
+      typeof candidate.apiKey === "string" &&
+      candidate.apiKey.length > 0 &&
+      hasExplicitFreeEligibility(candidate) &&
+      isSafeProviderBaseUrl(candidate.baseUrl) &&
+      verificationRank(candidate, capability) > 0)
+    .sort((first, second) => {
+      const priority = (Number(second.priority) || 0) - (Number(first.priority) || 0);
+      if (priority) return priority;
+      return verificationRank(second, capability) - verificationRank(first, capability);
+    });
 }
 
 async function readBoundedBody(request, maxBytes) {
@@ -199,14 +209,14 @@ async function loadCandidates(providerStore, capability, requestedModel) {
 }
 
 function shouldTryNext(status) {
-  return status === 401 || status === 403 || status === 408 || status === 409 || status === 429 || status >= 500;
+  return status === 401 || status === 402 || status === 403 || status === 408 || status === 409 || status === 429 || status >= 500;
 }
 
 async function callWithFallback(candidates, makeRequest, fetchImpl) {
   let lastError = null;
   for (const provider of candidates) {
     try {
-      const request = makeRequest(provider);
+      const request = await makeRequest(provider);
       const upstream = await fetchImpl(request.url, request.options);
       if (upstream.ok) return { upstream, provider };
       const status = upstream.status;
@@ -247,6 +257,69 @@ function requestedModelFrom(value) {
   return model && model.length <= 200 ? model : "router-ia-auto";
 }
 
+function isCloudflare(provider) {
+  return isCloudflareWorkersAiBaseUrl(provider?.baseUrl);
+}
+
+function cloudflareSpeechPayload(provider, body) {
+  const requestedFormat = typeof body.response_format === "string" ? body.response_format.toLowerCase() : "mp3";
+  const encoding = ["flac", "mulaw", "alaw", "mp3", "opus", "aac"].includes(requestedFormat) ? requestedFormat : "mp3";
+  const voice = typeof body.voice === "string" ? body.voice.trim().toLowerCase() : "";
+  const spanishVoices = new Set(["sirio", "nestor", "carina", "celeste", "alvaro", "diana", "aquila", "selena", "estrella", "javier"]);
+  const spanish = /aura-2-es$/i.test(provider.model);
+  const speaker = spanish ? (spanishVoices.has(voice) ? voice : "aquila") : (voice || "asteria");
+  return { text: body.input, speaker, encoding };
+}
+
+async function cloudflareTranscriptionPayload(form) {
+  const file = form.get("file");
+  if (!(file instanceof File)) {
+    const error = new Error("Provide an audio file.");
+    error.statusCode = 400;
+    error.code = "invalid_audio";
+    throw error;
+  }
+  const bytes = Buffer.from(await file.arrayBuffer());
+  if (!bytes.length || bytes.length > MAX_MULTIPART_BODY_BYTES) {
+    const error = new Error("Provide a valid audio file.");
+    error.statusCode = 400;
+    error.code = "invalid_audio";
+    throw error;
+  }
+  const language = form.get("language");
+  return {
+    audio: bytes.toString("base64"),
+    task: "transcribe",
+    ...(typeof language === "string" && language.trim() ? { language: language.trim() } : {}),
+  };
+}
+
+async function writeTranscriptionResponse(response, upstream, provider) {
+  if (!isCloudflare(provider)) {
+    const body = await readBoundedBuffer(upstream, MAX_JSON_RESPONSE_BYTES);
+    response.writeHead(200, {
+      "cache-control": "no-store",
+      "content-length": body.length,
+      "content-type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
+      "x-content-type-options": "nosniff",
+    });
+    response.end(body);
+    return;
+  }
+  const body = await readBoundedBuffer(upstream, MAX_JSON_RESPONSE_BYTES);
+  let payload;
+  try {
+    payload = JSON.parse(body.toString("utf8"));
+  } catch {
+    throw new Error("Cloudflare returned an invalid transcription response.");
+  }
+  const result = payload?.result ?? payload;
+  if (!result || typeof result !== "object" || typeof result.text !== "string") {
+    throw new Error("Cloudflare returned an invalid transcription response.");
+  }
+  sendJson(response, 200, result);
+}
+
 export function createMultimodalHandler({ appToken, providerStore, fetchImpl = globalThis.fetch }) {
   return async function handleMultimodalRequest(request, response, url) {
     const routes = new Set([
@@ -272,15 +345,32 @@ export function createMultimodalHandler({ appToken, providerStore, fetchImpl = g
         const form = await readMultipartForm(request);
         const requestedModel = requestedModelFrom(form.get("model"));
         const candidates = await loadCandidates(providerStore, "transcription", requestedModel);
-        const { upstream } = await callWithFallback(
+        const cfPayload = candidates.some(isCloudflare) ? await cloudflareTranscriptionPayload(form) : null;
+        const { upstream, provider } = await callWithFallback(
           candidates,
-          (provider) => {
-            const body = copyFormData(form, provider.model);
+          async (candidate) => {
+            if (isCloudflare(candidate)) {
+              return {
+                url: `${candidate.baseUrl.replace(/\/+$/, "")}/run/${candidate.model}`,
+                options: {
+                  method: "POST",
+                  headers: {
+                    accept: "application/json",
+                    authorization: `Bearer ${candidate.apiKey}`,
+                    "content-type": "application/json",
+                  },
+                  body: JSON.stringify(cfPayload),
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60_000),
+                },
+              };
+            }
+            const body = copyFormData(form, candidate.model);
             return {
-              url: `${provider.baseUrl.replace(/\/+$/, "")}/audio/transcriptions`,
+              url: `${candidate.baseUrl.replace(/\/+$/, "")}/audio/transcriptions`,
               options: {
                 method: "POST",
-                headers: { authorization: `Bearer ${provider.apiKey}` },
+                headers: { authorization: `Bearer ${candidate.apiKey}` },
                 body,
                 redirect: "error",
                 signal: AbortSignal.timeout(60_000),
@@ -289,14 +379,7 @@ export function createMultimodalHandler({ appToken, providerStore, fetchImpl = g
           },
           fetchImpl,
         );
-        const body = await readBoundedBuffer(upstream, MAX_JSON_RESPONSE_BYTES);
-        response.writeHead(200, {
-          "cache-control": "no-store",
-          "content-length": body.length,
-          "content-type": upstream.headers.get("content-type") ?? "application/json; charset=utf-8",
-          "x-content-type-options": "nosniff",
-        });
-        response.end(body);
+        await writeTranscriptionResponse(response, upstream, provider);
         return true;
       }
 
@@ -311,24 +394,43 @@ export function createMultimodalHandler({ appToken, providerStore, fetchImpl = g
           sendApiError(response, 400, "invalid_input", "Provide speech input text.");
           return true;
         }
+        body.input = body.input.trim();
         const requestedModel = requestedModelFrom(body.model);
         const candidates = await loadCandidates(providerStore, "speech", requestedModel);
         const { upstream } = await callWithFallback(
           candidates,
-          (provider) => ({
-            url: `${provider.baseUrl.replace(/\/+$/, "")}/audio/speech`,
-            options: {
-              method: "POST",
-              headers: {
-                accept: "*/*",
-                authorization: `Bearer ${provider.apiKey}`,
-                "content-type": "application/json",
+          async (provider) => {
+            if (isCloudflare(provider)) {
+              return {
+                url: `${provider.baseUrl.replace(/\/+$/, "")}/run/${provider.model}`,
+                options: {
+                  method: "POST",
+                  headers: {
+                    accept: "*/*",
+                    authorization: `Bearer ${provider.apiKey}`,
+                    "content-type": "application/json",
+                  },
+                  body: JSON.stringify(cloudflareSpeechPayload(provider, body)),
+                  redirect: "error",
+                  signal: AbortSignal.timeout(60_000),
+                },
+              };
+            }
+            return {
+              url: `${provider.baseUrl.replace(/\/+$/, "")}/audio/speech`,
+              options: {
+                method: "POST",
+                headers: {
+                  accept: "*/*",
+                  authorization: `Bearer ${provider.apiKey}`,
+                  "content-type": "application/json",
+                },
+                body: JSON.stringify({ ...body, model: provider.model }),
+                redirect: "error",
+                signal: AbortSignal.timeout(60_000),
               },
-              body: JSON.stringify({ ...body, model: provider.model }),
-              redirect: "error",
-              signal: AbortSignal.timeout(60_000),
-            },
-          }),
+            };
+          },
           fetchImpl,
         );
         const audio = await readBoundedBuffer(upstream, MAX_BINARY_RESPONSE_BYTES);

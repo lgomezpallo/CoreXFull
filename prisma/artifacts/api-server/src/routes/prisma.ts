@@ -11,16 +11,25 @@ import {
   listImportantMemories,
   recordConversationTurn,
 } from "../lib/prisma-memory";
+import {
+  analyzePrismaImage,
+  type PrismaImageInput,
+} from "../lib/prisma-vision";
 
 const router: IRouter = Router();
 
 type RequestMessage = { role: "user" | "assistant"; content: string };
 
-function parseRequest(value: unknown): {
+type ParsedRequest = {
   messages: RequestMessage[];
   mode: "chat" | "document";
   conversationId: string;
-} | null {
+  image?: PrismaImageInput;
+};
+
+const IMAGE_MIME_TYPES = new Set(["image/jpeg", "image/png", "image/webp"]);
+
+function parseRequest(value: unknown): ParsedRequest | null {
   if (!value || typeof value !== "object" || Array.isArray(value)) return null;
   const body = value as Record<string, unknown>;
   if (body.mode !== "chat" && body.mode !== "document") return null;
@@ -33,10 +42,24 @@ function parseRequest(value: unknown): {
     if ((message.role !== "user" && message.role !== "assistant") || typeof message.content !== "string" || message.content.length > 12_000) return null;
     messages.push({ role: message.role, content: message.content });
   }
+
+  let image: PrismaImageInput | undefined;
+  if (body.image !== undefined) {
+    if (!body.image || typeof body.image !== "object" || Array.isArray(body.image)) return null;
+    const rawImage = body.image as Record<string, unknown>;
+    if (typeof rawImage.data !== "string" || rawImage.data.length < 16 || rawImage.data.length > 6_500_000) return null;
+    if (typeof rawImage.mimeType !== "string" || !IMAGE_MIME_TYPES.has(rawImage.mimeType)) return null;
+    image = {
+      data: rawImage.data,
+      mimeType: rawImage.mimeType as PrismaImageInput["mimeType"],
+    };
+  }
+
   return {
     messages,
     mode: body.mode,
     conversationId: body.conversationId.trim(),
+    image,
   };
 }
 
@@ -51,6 +74,7 @@ router.get("/prisma/status", async (_req, res) => {
         scopes: [...new Set(memories.map((item) => item.scope))],
       },
       corex: corexToolStatus(),
+      vision: { acceptsImages: true, mimeTypes: [...IMAGE_MIME_TYPES] },
       changeMode: "prepare-and-approve",
     });
   } catch (error) {
@@ -66,7 +90,7 @@ router.get("/prisma/status", async (_req, res) => {
 router.post("/prisma/chat", async (req, res) => {
   const input = parseRequest(req.body);
   if (!input) {
-    res.status(400).json({ error: "El mensaje no tiene un formato válido." });
+    res.status(400).json({ error: "El mensaje o la imagen no tienen un formato válido." });
     return;
   }
 
@@ -81,22 +105,50 @@ router.post("/prisma/chat", async (req, res) => {
     throw error;
   }
 
-  const latestUser = [...input.messages].reverse().find((message) => message.role === "user");
+  const latestUserIndex = [...input.messages]
+    .map((message, index) => ({ message, index }))
+    .reverse()
+    .find(({ message }) => message.role === "user")?.index;
 
   try {
     await ensurePrismaMemory();
-    if (latestUser) {
+
+    let agentMessages = input.messages;
+    let durableUserContent = latestUserIndex === undefined
+      ? ""
+      : input.messages[latestUserIndex]?.content ?? "";
+
+    if (input.image && latestUserIndex !== undefined) {
+      const visionAnalysis = await analyzePrismaImage(
+        provider,
+        input.image,
+        durableUserContent,
+      );
+      durableUserContent = [
+        durableUserContent || "Analiza esta imagen.",
+        "",
+        "[Lectura persistente de la imagen adjunta]",
+        visionAnalysis,
+      ].join("\n");
+      agentMessages = input.messages.map((message, index) =>
+        index === latestUserIndex
+          ? { ...message, content: durableUserContent }
+          : message,
+      );
+    }
+
+    if (latestUserIndex !== undefined) {
       await recordConversationTurn({
         conversationId: input.conversationId,
         role: "user",
-        content: latestUser.content,
+        content: durableUserContent,
         mode: input.mode,
       });
     }
 
     const content = await runPrismaAgent({
       provider,
-      messages: input.messages,
+      messages: agentMessages,
       mode: input.mode,
     });
 

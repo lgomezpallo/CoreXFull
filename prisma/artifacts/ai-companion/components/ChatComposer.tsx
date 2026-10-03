@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import * as ImagePicker from 'expo-image-picker';
 import {
   Image,
@@ -27,14 +26,10 @@ interface ChatComposerProps {
   inputRef: RefObject<TextInput | null>;
 }
 
-const modes: Array<{
-  id: ChatMode;
-  label: string;
-  icon: keyof typeof Ionicons.glyphMap;
-}> = [
-  { id: 'chat', label: 'Chat', icon: 'chatbubble-ellipses-outline' },
-  { id: 'image', label: 'Imagen', icon: 'image-outline' },
-  { id: 'document', label: 'Documento', icon: 'document-text-outline' },
+const modes: Array<{ id: ChatMode; label: string }> = [
+  { id: 'chat', label: 'Chat' },
+  { id: 'image', label: 'Imagen' },
+  { id: 'document', label: 'Documento' },
 ];
 
 function normalizeMimeType(value?: string | null): PrismaImageAttachment['mimeType'] | null {
@@ -135,11 +130,6 @@ export default function ChatComposer({
                 },
               ]}
             >
-              <Ionicons
-                name={item.icon}
-                size={15}
-                color={selected ? colors.accentForeground : colors.mutedForeground}
-              />
               <Text
                 style={[
                   styles.modeLabel,
@@ -170,7 +160,7 @@ export default function ChatComposer({
             onPress={() => setAttachment(null)}
             style={[styles.removeAttachment, { backgroundColor: colors.secondary }]}
           >
-            <Ionicons name="close" size={17} color={colors.secondaryForeground} />
+            <Text style={[styles.symbol, { color: colors.secondaryForeground }]}>×</Text>
           </Pressable>
         </View>
       ) : null}
@@ -198,7 +188,7 @@ export default function ChatComposer({
             },
           ]}
         >
-          <Ionicons name="attach" size={21} color={colors.mutedForeground} />
+          <Text style={[styles.attachText, { color: colors.mutedForeground }]}>+</Text>
         </Pressable>
         <TextInput
           ref={inputRef}
@@ -231,16 +221,17 @@ export default function ChatComposer({
             },
           ]}
         >
-          <Ionicons
-            name={isBusy ? 'ellipsis-horizontal' : 'arrow-up'}
-            size={20}
-            color={canSend ? colors.primaryForeground : colors.mutedForeground}
-          />
+          <Text
+            style={[
+              styles.sendText,
+              { color: canSend ? colors.primaryForeground : colors.mutedForeground },
+            ]}
+          >
+            {isBusy ? '…' : '↑'}
+          </Text>
         </Pressable>
       </View>
-      <Text style={[styles.disclaimer, { color: colors.mutedForeground }]}>
-        Revisa la información importante antes de usarla.
-      </Text>
+      <Text style={[styles.disclaimer, { color: colors.mutedForeground }]}>Revisa la información importante antes de usarla.</Text>
     </View>
   );
 }
@@ -260,8 +251,7 @@ const styles = StyleSheet.create({
     minHeight: 34,
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 6,
-    paddingHorizontal: 11,
+    paddingHorizontal: 13,
     borderRadius: 12,
   },
   modeLabel: {
@@ -298,6 +288,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  symbol: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 20,
+    lineHeight: 22,
+  },
   attachmentError: {
     fontFamily: 'Inter_500Medium',
     fontSize: 11,
@@ -318,6 +313,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  attachText: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 25,
+    lineHeight: 28,
+  },
   input: {
     flex: 1,
     maxHeight: 118,
@@ -336,6 +336,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginLeft: 5,
+  },
+  sendText: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 22,
+    lineHeight: 24,
   },
   disclaimer: {
     textAlign: 'center',

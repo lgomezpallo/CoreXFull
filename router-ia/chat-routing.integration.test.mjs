@@ -110,3 +110,73 @@ test("messages with images route only to vision-capable models", async (t) => {
   assert.equal(calls.length, 1);
   assert.equal(calls[0].body.model, "vision-model");
 });
+
+test("normal chat still stops after a semantic 400", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "first", model: "first-model", priority: 90, capabilities: ["chat"] }),
+    provider({ id: "second", model: "second-model", priority: 50, capabilities: ["chat"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return new Response("bad request", { status: 400 });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${APP_TOKEN}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "router-ia-auto",
+      messages: [{ role: "user", content: "hola" }],
+    }),
+  });
+
+  assert.equal(response.status, 400);
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].body.model, "first-model");
+});
+
+test("vision tries the next vision provider after a 400 payload rejection", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "vision-a", model: "vision-a-model", priority: 90, capabilities: ["chat", "vision"] }),
+    provider({ id: "vision-b", model: "vision-b-model", priority: 50, capabilities: ["chat", "vision"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    if (url.startsWith("https://vision-a.example")) {
+      return new Response("image payload rejected", { status: 400 });
+    }
+    return new Response(JSON.stringify({
+      id: "vision-fallback-ok",
+      choices: [{ index: 0, message: { role: "assistant", content: "segunda visión funcionó" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${APP_TOKEN}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "router-ia-auto",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "¿Qué muestra?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+        ],
+      }],
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.router.capability, "vision");
+  assert.equal(body.choices[0].message.content, "segunda visión funcionó");
+  assert.deepEqual(calls.map((call) => call.body.model), ["vision-a-model", "vision-b-model"]);
+});

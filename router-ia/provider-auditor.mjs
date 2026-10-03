@@ -27,8 +27,7 @@ function likelyNonChat(model) {
 
 function statusFromResponse(response) {
   if (response.ok) return "verified";
-  if ([408, 409, 429].includes(response.status) || response.status >= 500) return "inconclusive";
-  if ([401, 403, 402].includes(response.status)) return "inconclusive";
+  if ([401, 402, 403, 408, 409, 429].includes(response.status) || response.status >= 500) return "inconclusive";
   return "unsupported";
 }
 
@@ -122,42 +121,41 @@ async function probeTranscription(provider, fetchImpl) {
   }, 45000);
 }
 
+function applyProbeResult(capabilities, declared, capability, result) {
+  if (result.status === "verified") capabilities.add(capability);
+  else if (result.status === "inconclusive" && declared.includes(capability)) capabilities.add(capability);
+}
+
 export async function auditProviderCapabilities(provider, fetchImpl = globalThis.fetch) {
   const declared = Array.isArray(provider.capabilities) ? provider.capabilities : [];
   const checks = {};
-  const verified = new Set();
+  const capabilities = new Set(
+    declared.filter((capability) => ["coding", "reasoning", "summarization", "document", "long_context", "fast", "image_editing"].includes(capability)),
+  );
 
   if (!likelyNonChat(provider.model) || declared.includes("chat")) {
     checks.chat = await probeChat(provider, fetchImpl, false);
-    if (checks.chat.status === "verified") verified.add("chat");
+    applyProbeResult(capabilities, declared, "chat", checks.chat);
   }
-
   if (declared.includes("vision") || likelyVision(provider.model)) {
     checks.vision = await probeChat(provider, fetchImpl, true);
-    if (checks.vision.status === "verified") verified.add("vision");
+    applyProbeResult(capabilities, declared, "vision", checks.vision);
   }
-
   if (declared.includes("image_generation") || likelyImage(provider.model)) {
     checks.image_generation = await probeImageGeneration(provider, fetchImpl);
-    if (checks.image_generation.status === "verified") verified.add("image_generation");
+    applyProbeResult(capabilities, declared, "image_generation", checks.image_generation);
   }
-
   if (declared.includes("transcription") || likelyTranscription(provider.model)) {
     checks.transcription = await probeTranscription(provider, fetchImpl);
-    if (checks.transcription.status === "verified") verified.add("transcription");
+    applyProbeResult(capabilities, declared, "transcription", checks.transcription);
   }
-
   if (declared.includes("speech") || likelySpeech(provider.model)) {
     checks.speech = await probeSpeech(provider, fetchImpl);
-    if (checks.speech.status === "verified") verified.add("speech");
-  }
-
-  for (const passive of ["coding", "reasoning", "summarization", "document", "long_context", "fast", "image_editing"]) {
-    if (declared.includes(passive)) verified.add(passive);
+    applyProbeResult(capabilities, declared, "speech", checks.speech);
   }
 
   return {
-    capabilities: [...verified],
+    capabilities: [...capabilities],
     verification: {
       checkedAt: new Date().toISOString(),
       source: "active_probe_v1",

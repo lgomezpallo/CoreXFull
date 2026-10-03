@@ -92,7 +92,7 @@ export async function corexListTree(pathValue = "corex", depth = 2) {
           size: match[4] === "-" ? undefined : Number(match[4]),
         };
       })
-      .filter((item): item is { path: string; type: string; sha: string; size?: number } => Boolean(item))
+      .filter((item): item is { path: string; type: string; sha: string; size: number | undefined } => Boolean(item))
       .slice(0, 1200);
     return { root, branch: BRANCH, entries, truncated: entries.length >= 1200, transport: "ssh" };
   });

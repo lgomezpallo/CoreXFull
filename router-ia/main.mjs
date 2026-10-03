@@ -4,10 +4,11 @@ import { createAdminExtraHandler } from "./admin-extra-routes.mjs";
 import { createCapabilitiesHandler } from "./capabilities-route.mjs";
 import { createSmartChatHandler } from "./chat-handler.mjs";
 import { createMultimodalHandler } from "./multimodal-routes.mjs";
+import { createCloudflareAudioHandler } from "./cloudflare-audio-routes.mjs";
 import { createCloudflareImageHandler } from "./cloudflare-image-routes.mjs";
 import { syncCloudflareCatalog } from "./cloudflare-sync.mjs";
 import { auditAllProviders } from "./provider-auditor.mjs";
-import { makeSolidPng } from "./probe-assets.mjs";
+import { makeSilenceWav, makeSolidPng } from "./probe-assets.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
 
@@ -35,6 +36,7 @@ export function createRouterApp(overrides = {}) {
   const capabilitiesHandler = createCapabilitiesHandler({ appToken, providerStore });
   const smartChatHandler = createSmartChatHandler({ appToken, providerStore, fetchImpl });
   const cloudflareImageHandler = createCloudflareImageHandler({ appToken, providerStore, fetchImpl });
+  const cloudflareAudioHandler = createCloudflareAudioHandler({ appToken, providerStore, fetchImpl });
   const multimodalHandler = createMultimodalHandler({ appToken, providerStore, fetchImpl });
 
   server.on("request", async (request, response) => {
@@ -44,6 +46,7 @@ export function createRouterApp(overrides = {}) {
       if (await capabilitiesHandler(request, response, url)) return;
       if (await smartChatHandler(request, response, url)) return;
       if (await cloudflareImageHandler(request, response, url)) return;
+      if (await cloudflareAudioHandler(request, response, url)) return;
       if (await multimodalHandler(request, response, url)) return;
       return await baseHandler(request, response);
     } catch {
@@ -110,10 +113,7 @@ async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis
     const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/images/generations`, {
       method: "POST",
       headers: { authorization: `Bearer ${appToken}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "@cf/black-forest-labs/flux-1-schnell",
-        prompt: "A peaceful landscape of green hills under a clear blue sky",
-      }),
+      body: JSON.stringify({ model: "@cf/black-forest-labs/flux-1-schnell", prompt: "A peaceful landscape of green hills under a clear blue sky" }),
       signal: AbortSignal.timeout(100_000),
     });
     if (!response.ok) {
@@ -136,7 +136,7 @@ async function runStartupImageEditSmokeTest({ port, appToken, fetchImpl = global
     const form = new FormData();
     form.set("model", "@cf/black-forest-labs/flux-2-klein-4b");
     form.set("prompt", "Change the blue square to a green square on the same plain background");
-    form.set("image", new Blob([makeSolidPng(32, 32)], { type: "image/png" }), "probe.png");
+    form.set("image", new Blob([makeSolidPng(64, 64)], { type: "image/png" }), "probe.png");
     const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/images/edits`, {
       method: "POST",
       headers: { authorization: `Bearer ${appToken}` },
@@ -154,6 +154,54 @@ async function runStartupImageEditSmokeTest({ port, appToken, fetchImpl = global
     else console.error("ROUTER_IMAGE_EDIT_SMOKE_FAIL invalid_response");
   } catch (error) {
     console.error(`ROUTER_IMAGE_EDIT_SMOKE_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
+async function runStartupCloudflareSpeechSmoke({ port, appToken, fetchImpl = globalThis.fetch }) {
+  if (process.env.ROUTER_CLOUDFLARE_SPEECH_SMOKE !== "1") return;
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/audio/speech`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${appToken}`, "content-type": "application/json" },
+      body: JSON.stringify({ model: "@cf/deepgram/aura-2-es", input: "Hola", voice: "aquila", response_format: "mp3" }),
+      signal: AbortSignal.timeout(70_000),
+    });
+    if (!response.ok) {
+      const diagnostic = await readSmokeFailure(response);
+      console.error(`ROUTER_SPEECH_SMOKE_FAIL status=${response.status}${diagnostic ? ` detail=${diagnostic}` : ""}`);
+      return;
+    }
+    const audio = Buffer.from(await response.arrayBuffer());
+    if (audio.length > 32) console.log("ROUTER_SPEECH_SMOKE_OK");
+    else console.error("ROUTER_SPEECH_SMOKE_FAIL invalid_response");
+  } catch (error) {
+    console.error(`ROUTER_SPEECH_SMOKE_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
+async function runStartupCloudflareTranscriptionSmoke({ port, appToken, fetchImpl = globalThis.fetch }) {
+  if (process.env.ROUTER_CLOUDFLARE_TRANSCRIPTION_SMOKE !== "1") return;
+  try {
+    const form = new FormData();
+    form.set("model", "@cf/openai/whisper-large-v3-turbo");
+    form.set("language", "es");
+    form.set("file", new Blob([makeSilenceWav({ durationMs: 500 })], { type: "audio/wav" }), "probe.wav");
+    const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/audio/transcriptions`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${appToken}` },
+      body: form,
+      signal: AbortSignal.timeout(70_000),
+    });
+    if (!response.ok) {
+      const diagnostic = await readSmokeFailure(response);
+      console.error(`ROUTER_TRANSCRIPTION_SMOKE_FAIL status=${response.status}${diagnostic ? ` detail=${diagnostic}` : ""}`);
+      return;
+    }
+    const payload = await response.json();
+    if (typeof payload?.text === "string") console.log("ROUTER_TRANSCRIPTION_SMOKE_OK");
+    else console.error("ROUTER_TRANSCRIPTION_SMOKE_FAIL invalid_response");
+  } catch (error) {
+    console.error(`ROUTER_TRANSCRIPTION_SMOKE_FAIL ${error?.name ?? "error"}`);
   }
 }
 
@@ -209,6 +257,8 @@ if (isMain) {
         void runStartupSmokeTest({ port, appToken });
         void runStartupImageSmokeTest({ port, appToken });
         void runStartupImageEditSmokeTest({ port, appToken });
+        void runStartupCloudflareSpeechSmoke({ port, appToken });
+        void runStartupCloudflareTranscriptionSmoke({ port, appToken });
         void runStartupCloudflareSync();
         void runStartupCapabilityAudit();
       });

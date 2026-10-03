@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { useGenerateAiImage } from '@workspace/api-client-react';
 import * as Haptics from 'expo-haptics';
 import { router } from 'expo-router';
@@ -45,13 +44,11 @@ function TypingIndicator() {
   return (
     <View style={styles.typingRow}>
       <View style={[styles.typingMark, { backgroundColor: colors.accent }]}>
-        <Ionicons name="sparkles" size={14} color={colors.accentForeground} />
+        <Text style={[styles.symbol, { color: colors.accentForeground }]}>✦</Text>
       </View>
       <View style={styles.typingContent}>
         <ActivityIndicator size="small" color={colors.primary} />
-        <Text style={[styles.typingText, { color: colors.mutedForeground }]}>
-          Prisma está pensando
-        </Text>
+        <Text style={[styles.typingText, { color: colors.mutedForeground }]}>Prisma está pensando</Text>
       </View>
     </View>
   );
@@ -145,10 +142,7 @@ export default function ChatScreen() {
         const generated = await imageMutation.mutateAsync({
           data: { prompt: visibleText, size: '1024x1024' },
         });
-        const imageUri = await saveGeneratedImage(
-          generated.b64_json,
-          assistantId,
-        );
+        const imageUri = await saveGeneratedImage(generated.b64_json, assistantId);
         const imageMessage: ConversationMessage = {
           id: assistantId,
           role: 'assistant',
@@ -232,8 +226,7 @@ export default function ChatScreen() {
   }
 
   const listData = useMemo(() => [...messages].reverse(), [messages]);
-  const composerBottomPadding =
-    Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 10);
+  const composerBottomPadding = Platform.OS === 'web' ? 34 : Math.max(insets.bottom, 10);
 
   return (
     <KeyboardAvoidingView
@@ -266,19 +259,11 @@ export default function ChatScreen() {
               },
             ]}
           >
-            <Ionicons
-              name="time-outline"
-              size={20}
-              color={colors.secondaryForeground}
-            />
+            <Text style={[styles.headerSymbol, { color: colors.secondaryForeground }]}>↶</Text>
           </Pressable>
           <View style={styles.brand}>
-            <Text style={[styles.brandName, { color: colors.foreground }]}>
-              Prisma
-            </Text>
-            <Text style={[styles.brandSubtitle, { color: colors.mutedForeground }]}>
-              Tu espacio de ideas
-            </Text>
+            <Text style={[styles.brandName, { color: colors.foreground }]}>Prisma</Text>
+            <Text style={[styles.brandSubtitle, { color: colors.mutedForeground }]}>Tu espacio de ideas</Text>
           </View>
           <Pressable
             accessibilityRole="button"
@@ -294,11 +279,7 @@ export default function ChatScreen() {
               },
             ]}
           >
-            <Ionicons
-              name="add"
-              size={23}
-              color={colors.secondaryForeground}
-            />
+            <Text style={[styles.headerSymbol, { color: colors.secondaryForeground }]}>+</Text>
           </Pressable>
         </View>
 
@@ -307,15 +288,9 @@ export default function ChatScreen() {
             accessibilityRole="alert"
             style={[styles.notice, { backgroundColor: colors.secondary }]}
           >
-            <Text style={[styles.noticeText, { color: colors.secondaryForeground }]}>
-              {notice}
-            </Text>
+            <Text style={[styles.noticeText, { color: colors.secondaryForeground }]}>{notice}</Text>
             <Pressable onPress={() => setNotice('')} accessibilityLabel="Cerrar aviso">
-              <Ionicons
-                name="close"
-                size={17}
-                color={colors.secondaryForeground}
-              />
+              <Text style={[styles.closeSymbol, { color: colors.secondaryForeground }]}>×</Text>
             </Pressable>
           </View>
         ) : null}
@@ -330,21 +305,11 @@ export default function ChatScreen() {
             contentContainerStyle={styles.emptyContent}
             keyboardShouldPersistTaps="handled"
           >
-            <View
-              style={[styles.welcomeMark, { backgroundColor: colors.accent }]}
-            >
-              <Ionicons
-                name="sparkles"
-                size={25}
-                color={colors.accentForeground}
-              />
+            <View style={[styles.welcomeMark, { backgroundColor: colors.accent }]}>
+              <Text style={[styles.welcomeSymbol, { color: colors.accentForeground }]}>✦</Text>
             </View>
-            <Text style={[styles.welcomeTitle, { color: colors.foreground }]}>
-              ¿Qué te gustaría{'\n'}hacer hoy?
-            </Text>
-            <Text style={[styles.welcomeCopy, { color: colors.mutedForeground }]}>
-              Conversa, analiza una imagen, crea una imagen o convierte una idea en un documento.
-            </Text>
+            <Text style={[styles.welcomeTitle, { color: colors.foreground }]}>¿Qué te gustaría{'\n'}hacer hoy?</Text>
+            <Text style={[styles.welcomeCopy, { color: colors.mutedForeground }]}>Conversa, analiza una imagen, crea una imagen o convierte una idea en un documento.</Text>
             <View style={styles.suggestionList}>
               {suggestions.map((suggestion, index) => (
                 <Pressable
@@ -365,19 +330,8 @@ export default function ChatScreen() {
                     },
                   ]}
                 >
-                  <Text
-                    style={[
-                      styles.suggestionText,
-                      { color: colors.cardForeground },
-                    ]}
-                  >
-                    {suggestion}
-                  </Text>
-                  <Ionicons
-                    name="arrow-up"
-                    size={17}
-                    color={colors.mutedForeground}
-                  />
+                  <Text style={[styles.suggestionText, { color: colors.cardForeground }]}>{suggestion}</Text>
+                  <Text style={[styles.suggestionArrow, { color: colors.mutedForeground }]}>↑</Text>
                 </Pressable>
               ))}
             </View>
@@ -433,6 +387,21 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
+  headerSymbol: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 23,
+    lineHeight: 25,
+  },
+  closeSymbol: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 20,
+    lineHeight: 22,
+  },
+  symbol: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    lineHeight: 15,
+  },
   brand: {
     flex: 1,
     alignItems: 'center',
@@ -486,6 +455,11 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginBottom: 20,
   },
+  welcomeSymbol: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 24,
+    lineHeight: 28,
+  },
   welcomeTitle: {
     fontFamily: 'Inter_700Bold',
     fontSize: 32,
@@ -515,6 +489,10 @@ const styles = StyleSheet.create({
   suggestionText: {
     fontFamily: 'Inter_500Medium',
     fontSize: 13,
+  },
+  suggestionArrow: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 18,
   },
   messageList: {
     paddingTop: 18,

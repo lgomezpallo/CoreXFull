@@ -30,11 +30,35 @@ paths:
             application/json:
               schema:
                 $ref: "#/components/schemas/HealthStatus"
+  /builder/converse:
+    post:
+      operationId: discussBuilderIdea
+      tags: [app-builder]
+      summary: Discuss and progressively define an app without generating it
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuilderConversationInput"
+      responses:
+        "200":
+          description: Conversational reply, accumulated brief, and build availability
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderConversationResult"
+        "400":
+          description: Invalid request
+        "502":
+          description: Conversation temporarily unavailable
   /builder/generate:
     post:
       operationId: generateAppBlueprint
       tags: [app-builder]
-      summary: Generate or revise an app blueprint from a conversational request
+      summary: Generate or revise an app blueprint after the user chooses to build
       requestBody:
         required: true
         content:
@@ -740,6 +764,48 @@ components:
           items:
             $ref: "#/components/schemas/AppBuilderSection"
       required: [title, subtitle, description, accentColor, appKind, sections]
+    BuilderConversationResult:
+      type: object
+      required: [assistantMessage, designBrief, readyToBuild]
+      properties:
+        assistantMessage:
+          type: string
+          minLength: 1
+          maxLength: 1600
+        designBrief:
+          type: string
+          maxLength: 6000
+        readyToBuild:
+          type: boolean
+    BuilderConversationInput:
+      type: object
+      required: [prompt, previousBlueprint, history, referenceFiles]
+      properties:
+        prompt:
+          type: string
+          minLength: 1
+          maxLength: 1600
+        readyToBuild:
+          type: boolean
+          default: false
+        designBrief:
+          type: string
+          maxLength: 6000
+          default: ""
+        previousBlueprint:
+          anyOf:
+            - $ref: "#/components/schemas/AppBlueprint"
+            - type: "null"
+        history:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/AppBuilderTurn"
+        referenceFiles:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AppBuilderReference"
     AppBuilderInput:
       type: object
       properties:
@@ -747,6 +813,10 @@ components:
           type: string
           minLength: 3
           maxLength: 1600
+        designBrief:
+          type: string
+          maxLength: 6000
+          default: ""
         previousBlueprint:
           anyOf:
             - $ref: "#/components/schemas/AppBlueprint"

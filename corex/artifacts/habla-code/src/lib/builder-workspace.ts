@@ -83,6 +83,7 @@ export type BuilderProject = {
   messages: AppBuilderTurn[];
   blueprint: AppBlueprint | null;
   taskPlan: AppBuilderTask[];
+  designConversation: { designBrief: string; readyToBuild: boolean } | null;
   expansionProposal: AppBuilderExpansionProposal | null;
   expansionDecision: "pending" | "approved" | "declined" | "unavailable" | null;
   approvedModuleId: AppBuilderModuleId | null;
@@ -534,6 +535,9 @@ function sanitizeProject(value: unknown): BuilderProject | null {
     messages: sanitizeMessages(value.messages),
     blueprint: normalizeBlueprint(value.blueprint),
     taskPlan: sanitizeTaskPlan(value.taskPlan),
+    designConversation: isRecord(value.designConversation) && typeof value.designConversation.designBrief === "string"
+      ? { designBrief: value.designConversation.designBrief.slice(0, 6000), readyToBuild: value.designConversation.readyToBuild === true }
+      : null,
     expansionProposal: sanitizeExpansionProposal(value.expansionProposal),
     expansionDecision:
       value.expansionDecision === "pending" ||
@@ -602,6 +606,7 @@ export function createBuilderProject(
     messages: [],
     blueprint: null,
     taskPlan: [],
+    designConversation: null,
     expansionProposal: null,
     expansionDecision: null,
     approvedModuleId: null,
@@ -622,6 +627,7 @@ export function createDefaultBuilderCollection(): BuilderProjectCollection {
     messages: [],
     blueprint: null,
     taskPlan: [],
+    designConversation: null,
     expansionProposal: null,
     expansionDecision: null,
     approvedModuleId: null,

@@ -7,6 +7,7 @@ import { build } from "esbuild";
 
 const testEntries = [
   "../src/lib/router-client.test.ts",
+  "../src/lib/builder-conversation.test.ts",
   "../src/lib/router-providers.test.ts",
   "../src/lib/router-contract.test.ts",
 ];

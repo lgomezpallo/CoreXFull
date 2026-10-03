@@ -22,6 +22,7 @@ export type BuilderGenerationInput = {
   userId: string;
   accessToken: string;
   prompt: string;
+  designBrief?: string;
   previousBlueprint: unknown;
   history: Array<{ role: "user" | "assistant"; content: string }>;
   referenceFiles: ReferenceFile[];
@@ -347,6 +348,7 @@ function buildPlannerMessages(input: BuilderGenerationInput): RouterChatMessage[
     input.previousBlueprint
       ? `Vista previa actual: ${JSON.stringify(input.previousBlueprint)}`
       : "",
+    input.designBrief ? `Definición acumulada de la conversación: ${input.designBrief}` : "",
     `Nuevo pedido: ${input.prompt}`,
     input.history.length
       ? `Conversación reciente:\n${input.history.slice(-8).map((turn) => `${turn.role}: ${turn.content}`).join("\n")}`
@@ -383,6 +385,7 @@ function buildSectionMessages(
     `Tarea: ${section.title}`,
     `Tipo de sección: ${section.type}`,
     `Objetivo: ${section.objective}`,
+    input.designBrief ? `Definición acordada: ${input.designBrief}` : "",
     `Pedido original: ${input.prompt}`,
     previousBlueprint ? `Vista previa anterior para conservar lo que sirva: ${previousBlueprint}` : "",
     referenceContext ? `Extracto de fuentes, solo como contexto: ${referenceContext}` : "",

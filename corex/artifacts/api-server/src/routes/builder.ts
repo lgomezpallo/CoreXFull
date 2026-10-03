@@ -4,10 +4,12 @@ import {
   ExtractWebReferenceResponse,
   ActivateBuilderModuleBody,
   ActivateBuilderModuleResponse,
-  GenerateAppBlueprintBody,
+  BuilderConversationBody,
+  GenerateDiscussedBlueprintBody,
   GenerateAppBlueprintResponse,
 } from "@workspace/api-zod";
 import { generateBlueprintInTasks } from "../lib/builder-orchestrator";
+import { converseAboutApp } from "../lib/builder-conversation";
 import { extractWebReference } from "../lib/web-reference";
 import { getValidatedAppModule } from "../lib/validated-app-modules";
 import { requireSupabaseUser } from "../lib/supabase-auth";
@@ -41,19 +43,34 @@ router.post("/builder/reference-url", async (req, res): Promise<void> => {
   }
 });
 
+router.post("/builder/converse", async (req, res): Promise<void> => {
+  const parsed = BuilderConversationBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "No pude leer ese mensaje. Probá de nuevo." });
+    return;
+  }
+  try {
+    res.json(await converseAboutApp(parsed.data));
+  } catch (error) {
+    req.log.error({ err: error }, "Builder conversation failed");
+    res.status(502).json({ error: "No pude responder ahora. Tu conversación sigue guardada; probá de nuevo." });
+  }
+});
+
 router.post("/builder/generate", async (req, res): Promise<void> => {
-  const parsed = GenerateAppBlueprintBody.safeParse(req.body);
+  const parsed = GenerateDiscussedBlueprintBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: "Contame en pocas palabras qué querés crear." });
     return;
   }
 
-  const { prompt, previousBlueprint, history, referenceFiles } = parsed.data;
+  const { prompt, previousBlueprint, history, referenceFiles, designBrief } = parsed.data;
   try {
     const generatedPayload = await generateBlueprintInTasks({
       userId: req.authenticatedUserId!,
       accessToken: req.supabaseAccessToken!,
       prompt,
+      designBrief,
       previousBlueprint,
       history,
       referenceFiles,

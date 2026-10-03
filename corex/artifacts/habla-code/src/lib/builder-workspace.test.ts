@@ -108,3 +108,11 @@ test("persists laboratory mode, goal, and reconstruction provenance", () => {
   assert.equal(saved.projects[0]?.labGoal, project.labGoal);
   assert.deepEqual(saved.projects[0]?.labVersions, [version]);
 });
+
+test("persists the accumulated design conversation before a blueprint exists", () => {
+  const project = createBuilderProject("Idea en conversación");
+  project.designConversation = { designBrief: "App para el encargado de una cafetería: registrar pedidos y entregas.", readyToBuild: true };
+  const saved = JSON.parse(serializeBuilderProjectCollection({ projects: [project], activeProjectId: project.id }));
+  assert.deepEqual(saved.projects[0].designConversation, project.designConversation);
+  assert.equal(saved.projects[0].blueprint, null);
+});

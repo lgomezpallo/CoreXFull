@@ -16,7 +16,7 @@ import {
 } from 'react-native';
 import { KeyboardAvoidingView } from 'react-native-keyboard-controller';
 import { SafeAreaView, useSafeAreaInsets } from 'react-native-safe-area-context';
-import ChatComposer from '@/components/ChatComposer';
+import ChatComposer, { type SelectedPrismaImage } from '@/components/ChatComposer';
 import ChatMessage from '@/components/ChatMessage';
 import {
   useConversations,
@@ -105,15 +105,20 @@ export default function ChatScreen() {
     }
   }
 
-  async function handleSend(text = draft.trim()) {
-    if (!text || isBusy || !isLoaded) return;
+  async function handleSend(
+    attachment: SelectedPrismaImage | null = null,
+    text = draft.trim(),
+  ) {
+    if ((!text && !attachment) || isBusy || !isLoaded) return;
+    const visibleText = text || 'Imagen adjunta';
     const currentMessages = messages;
     const userMessage: ConversationMessage = {
       id: makeMessageId(),
       role: 'user',
-      content: text,
+      content: visibleText,
       createdAt: new Date().toISOString(),
       mode,
+      imageUri: attachment?.uri,
     };
     const withUserMessage = [...currentMessages, userMessage];
     let finalMessages = withUserMessage;
@@ -131,14 +136,14 @@ export default function ChatScreen() {
     try {
       if (!conversationId) {
         creatingConversationRef.current = true;
-        conversationId = await createConversation(text);
+        conversationId = await createConversation(visibleText);
         loadedConversationRef.current = conversationId;
         creatingConversationRef.current = false;
       }
 
       if (mode === 'image') {
         const generated = await imageMutation.mutateAsync({
-          data: { prompt: text, size: '1024x1024' },
+          data: { prompt: visibleText, size: '1024x1024' },
         });
         const imageUri = await saveGeneratedImage(
           generated.b64_json,
@@ -156,25 +161,33 @@ export default function ChatScreen() {
         setMessages(finalMessages);
       } else {
         const chatHistory = [...withUserMessage]
-          .filter((message) => message.mode !== 'image' && !message.imageUri)
+          .filter((message) => message.mode !== 'image')
           .slice(-40)
           .map((message) => ({
             role: message.role,
             content: message.content,
           }));
 
-        await streamAiReply(chatHistory, mode, conversationId, (chunk) => {
-          assistantText += chunk;
-          const assistantMessage: ConversationMessage = {
-            id: assistantId,
-            role: 'assistant',
-            content: assistantText,
-            createdAt: assistantCreatedAt,
-            mode,
-          };
-          finalMessages = [...withUserMessage, assistantMessage];
-          setMessages(finalMessages);
-        });
+        await streamAiReply(
+          chatHistory,
+          mode,
+          conversationId,
+          (chunk) => {
+            assistantText += chunk;
+            const assistantMessage: ConversationMessage = {
+              id: assistantId,
+              role: 'assistant',
+              content: assistantText,
+              createdAt: assistantCreatedAt,
+              mode,
+            };
+            finalMessages = [...withUserMessage, assistantMessage];
+            setMessages(finalMessages);
+          },
+          attachment
+            ? { data: attachment.data, mimeType: attachment.mimeType }
+            : undefined,
+        );
       }
     } catch (error) {
       creatingConversationRef.current = false;
@@ -243,14 +256,14 @@ export default function ChatScreen() {
             accessibilityRole="button"
             accessibilityLabel="Ver conversaciones"
             testID="open-history"
-          disabled={isBusy}
+            disabled={isBusy}
             onPress={() => router.push('/history')}
             style={({ pressed }) => [
               styles.headerIcon,
-            {
-              backgroundColor: colors.secondary,
-              opacity: isBusy ? 0.5 : pressed ? 0.7 : 1,
-            },
+              {
+                backgroundColor: colors.secondary,
+                opacity: isBusy ? 0.5 : pressed ? 0.7 : 1,
+              },
             ]}
           >
             <Ionicons
@@ -271,14 +284,14 @@ export default function ChatScreen() {
             accessibilityRole="button"
             accessibilityLabel="Nueva conversación"
             testID="new-conversation"
-          disabled={isBusy}
+            disabled={isBusy}
             onPress={startNewChat}
             style={({ pressed }) => [
               styles.headerIcon,
-            {
-              backgroundColor: colors.secondary,
-              opacity: isBusy ? 0.5 : pressed ? 0.7 : 1,
-            },
+              {
+                backgroundColor: colors.secondary,
+                opacity: isBusy ? 0.5 : pressed ? 0.7 : 1,
+              },
             ]}
           >
             <Ionicons
@@ -330,7 +343,7 @@ export default function ChatScreen() {
               ¿Qué te gustaría{'\n'}hacer hoy?
             </Text>
             <Text style={[styles.welcomeCopy, { color: colors.mutedForeground }]}>
-              Conversa, crea una imagen o convierte una idea en un documento.
+              Conversa, analiza una imagen, crea una imagen o convierte una idea en un documento.
             </Text>
             <View style={styles.suggestionList}>
               {suggestions.map((suggestion, index) => (
@@ -392,7 +405,7 @@ export default function ChatScreen() {
             onChangeText={setDraft}
             mode={mode}
             onModeChange={setMode}
-            onSend={() => void handleSend()}
+            onSend={(attachment) => void handleSend(attachment)}
             isBusy={isBusy}
             inputRef={inputRef}
           />

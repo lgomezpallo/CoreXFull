@@ -44,6 +44,10 @@ export const ROUTER_TASK_TYPES = Object.freeze([
   "summarization",
   "vision",
   "document",
+  "transcription",
+  "speech",
+  "image_generation",
+  "image_editing",
 ]);
 
 export const PROVIDER_CAPABILITIES = Object.freeze([
@@ -196,12 +200,36 @@ export function inferModelCapabilities(model) {
   const metadata = normalizeModelMetadata(model);
   const inputs = metadata.inputModalities ?? [];
   const outputs = metadata.outputModalities ?? [];
+  const parameters = metadata.supportedParameters ?? [];
   const capabilities = [];
 
   if (inputs.includes("text") && outputs.includes("text")) capabilities.push("chat");
-  if (inputs.includes("image")) capabilities.push("vision");
+  if (inputs.includes("image") && outputs.includes("text")) capabilities.push("vision");
   if (inputs.some((modality) => ["document", "pdf"].includes(modality))) {
     capabilities.push("document");
+  }
+  if (
+    inputs.includes("audio") &&
+    outputs.some((modality) => ["text", "transcription"].includes(modality))
+  ) {
+    capabilities.push("transcription");
+  }
+  if (inputs.includes("text") && outputs.some((modality) => ["audio", "speech"].includes(modality))) {
+    capabilities.push("speech");
+  }
+  if (inputs.includes("text") && outputs.includes("image")) {
+    capabilities.push("image_generation");
+  }
+  if (inputs.includes("image") && outputs.includes("image")) {
+    capabilities.push("image_editing");
+  }
+  if (
+    parameters.some((parameter) =>
+      ["image", "image_generation", "images", "generate_image"].includes(parameter),
+    ) &&
+    !capabilities.includes("image_generation")
+  ) {
+    capabilities.push("image_generation");
   }
   if (Number.isSafeInteger(metadata.contextLength) && metadata.contextLength >= 100_000) {
     capabilities.push("long_context");

@@ -1,0 +1,234 @@
+<!doctype html>
+<html lang="es">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta
+      name="description"
+      content="Panel privado para configurar proveedores de modelos de Router IA."
+    />
+    <meta name="theme-color" content="#f3f5f4" />
+    <meta name="mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Router IA" />
+    <title>Proveedores · Router IA</title>
+    <link rel="manifest" href="/admin/manifest.webmanifest" />
+    <link rel="icon" type="image/png" sizes="192x192" href="/admin/icons/icon-192.png" />
+    <link rel="apple-touch-icon" href="/admin/icons/apple-touch-icon.png" />
+    <link rel="stylesheet" href="/admin/admin.css" />
+    <script src="/admin/admin.js" defer></script>
+  </head>
+  <body>
+    <main class="page-shell">
+      <header class="topbar">
+        <a class="wordmark" href="/admin/" aria-label="Router IA, panel de administración">
+          <span class="brand-mark" aria-hidden="true"><i></i><i></i><i></i></span>
+          <span>router<span class="wordmark-accent">ia</span></span>
+        </a>
+        <div class="topbar-actions">
+          <button
+            id="install-button"
+            class="button button-quiet install-button"
+            type="button"
+            hidden
+          >
+            Instalar
+          </button>
+          <div class="topbar-caption"><span class="status-dot"></span> Panel privado</div>
+        </div>
+      </header>
+
+      <section id="login-view" class="login-wrap" aria-labelledby="login-title" hidden>
+        <div class="login-card">
+          <p class="eyebrow">ACCESO DE ADMINISTRACIÓN</p>
+          <h1 id="login-title">Accedé a Router IA</h1>
+          <p class="muted">
+            Usá la huella o el método de desbloqueo de este dispositivo. El token
+            queda como recuperación y para el primer registro.
+          </p>
+          <div id="passkey-login-panel" class="passkey-login" hidden>
+            <button
+              id="passkey-login-button"
+              class="button button-primary button-full"
+              type="button"
+            >
+              <span>Huella o desbloqueo del dispositivo</span>
+              <span aria-hidden="true">→</span>
+            </button>
+            <p class="field-hint">
+              El dispositivo puede pedir tu huella, rostro, PIN o contraseña.
+            </p>
+          </div>
+          <details id="recovery-login" class="recovery-login" open>
+            <summary>Ingresar con token de recuperación</summary>
+            <form id="login-form">
+              <label for="admin-token">Token de administración</label>
+              <input
+                id="admin-token"
+                name="token"
+                type="password"
+                autocomplete="current-password"
+                required
+                spellcheck="false"
+              />
+              <button class="button button-primary button-full" type="submit">
+                <span>Entrar al panel</span><span aria-hidden="true">→</span>
+              </button>
+            </form>
+          </details>
+          <p id="login-message" class="form-message" role="status" aria-live="polite"></p>
+        </div>
+      </section>
+
+      <section id="admin-view" hidden>
+        <div class="page-heading">
+          <div>
+            <p class="eyebrow">CONFIGURACIÓN DEL SERVICIO</p>
+            <h1>Proveedores de modelos</h1>
+            <p class="muted heading-copy">
+              Conectá proveedores y consultá rutas activas. Solo se ejecutan modelos
+              con acceso gratuito verificado; no hay reintentos ni cambio de proveedor.
+            </p>
+          </div>
+          <button id="logout-button" class="button button-quiet" type="button">
+            Cerrar sesión <span aria-hidden="true">↗</span>
+          </button>
+        </div>
+
+        <div id="global-message" class="notice" role="status" aria-live="polite" hidden></div>
+
+        <section class="panel passkey-panel" aria-labelledby="passkey-title">
+          <div class="panel-heading">
+            <div>
+              <p class="eyebrow">ACCESO DIRECTO</p>
+              <h2 id="passkey-title">Huella o desbloqueo del dispositivo</h2>
+            </div>
+          </div>
+          <p id="passkey-summary" class="panel-copy">
+            Registrá este dispositivo para entrar sin el token de administración.
+          </p>
+          <div class="passkey-actions">
+            <button
+              id="register-passkey-button"
+              class="button button-primary"
+              type="button"
+            >
+              Activar en este dispositivo
+            </button>
+          </div>
+          <ul id="passkey-list" class="passkey-list" aria-label="Dispositivos registrados"></ul>
+          <p id="passkey-message" class="form-message" role="status" aria-live="polite"></p>
+        </section>
+
+        <div class="content-grid">
+          <section class="panel setup-panel" aria-labelledby="setup-title">
+            <div class="panel-heading">
+              <div>
+                <p class="eyebrow">NUEVA CONEXIÓN</p>
+                <h2 id="setup-title">Agregar proveedor</h2>
+              </div>
+              <span class="step-badge">01</span>
+            </div>
+            <p class="panel-copy">
+              Ingresá el nombre del proveedor, su URL base y la API key. Router IA
+              consulta el catálogo y agrega automáticamente modelos con precios de uso
+              publicados en cero. Para Groq, también contempla los modelos
+              incluidos en los límites de su plan Free. Para NVIDIA NIM, incluye
+              los modelos del API Catalog para prototipos sujetos a cuotas. La clave
+              se cifra al guardarse.
+            </p>
+
+            <form id="provider-form">
+              <div class="field-stack">
+                <label for="provider-name">Nombre del proveedor</label>
+                <input
+                  id="provider-name"
+                  name="name"
+                  maxlength="80"
+                  autocomplete="organization"
+                  required
+                />
+                <label for="base-url">URL base HTTPS</label>
+                <input
+                  id="base-url"
+                  name="baseUrl"
+                  type="url"
+                  inputmode="url"
+                  placeholder="https://api.ejemplo.com/v1"
+                  maxlength="2048"
+                  required
+                />
+                <p class="field-hint">
+                  Compatible con el catálogo /models. No incluyas /models ni /chat/completions.
+                </p>
+              </div>
+
+              <label for="api-key">API key</label>
+              <input
+                id="api-key"
+                name="apiKey"
+                type="password"
+                autocomplete="new-password"
+                required
+                spellcheck="false"
+              />
+              <p class="field-hint">No se vuelve a mostrar después de guardar.</p>
+
+              <button
+                id="save-button"
+                class="button button-primary button-full save-button"
+                type="submit"
+              >
+                Agregar modelos elegibles
+                <span aria-hidden="true">→</span>
+              </button>
+              <p id="provider-message" class="form-message" role="status" aria-live="polite"></p>
+            </form>
+            <div class="cost-note">
+              <span class="cost-icon" aria-hidden="true">₀</span>
+              <span>
+                <strong>Solo se ejecutan modelos elegibles.</strong> Se requiere una cuota Free
+                verificada, acceso de prototipado de NVIDIA o todos los precios publicados en
+                cero. Cada solicitud se envía una sola vez al proveedor guardado; al alcanzar
+                un límite no hay reintentos ni alternativas. Consultar GET /models depende de
+                las condiciones del proveedor.
+                <a href="https://console.groq.com/docs/rate-limits" target="_blank" rel="noreferrer">Ver límites oficiales de Groq</a>.
+                <a href="https://docs.api.nvidia.com/nim/docs/product" target="_blank" rel="noreferrer">Ver acceso oficial de NVIDIA NIM</a>.
+              </span>
+            </div>
+          </section>
+
+          <section class="panel saved-panel" aria-labelledby="saved-title">
+            <div class="panel-heading saved-heading">
+              <div>
+                <p class="eyebrow">ESTADO ACTUAL</p>
+                <h2 id="saved-title">Proveedores guardados</h2>
+              </div>
+              <span id="provider-count" class="count-pill">0</span>
+            </div>
+            <p class="panel-copy">
+              Puede haber varios proveedores activos por tarea. Solo se llaman modelos
+              guardados con acceso gratuito explícito.
+            </p>
+            <section class="route-overview" aria-labelledby="routes-title">
+              <div class="route-heading">
+                <h3 id="routes-title">Rutas declaradas</h3>
+                <span>sin fallback</span>
+              </div>
+              <div id="routes-list" class="routes-list" aria-live="polite"></div>
+            </section>
+            <div id="providers-list" class="providers-list" aria-live="polite">
+              <div class="loading-row"><span class="spinner"></span> Cargando configuración…</div>
+            </div>
+          </section>
+        </div>
+
+        <footer class="page-footer">
+          <span>Router IA</span>
+          <span>Credenciales protegidas en el servidor</span>
+        </footer>
+      </section>
+    </main>
+  </body>
+</html>

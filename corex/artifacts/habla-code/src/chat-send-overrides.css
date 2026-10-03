@@ -1,0 +1,23 @@
+.builder-send-button {
+  width: 44px;
+  min-width: 44px;
+  height: 44px;
+  padding: 0;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.builder-send-button > span {
+  display: none;
+}
+
+.builder-send-button svg {
+  width: 18px;
+  height: 18px;
+}
+
+.builder-composer-disclaimer {
+  display: none;
+}

@@ -1,0 +1,65 @@
+import { useCallback, useEffect, useMemo, useRef, useState, type FormEvent } from "react";
+import CodeMirror from "@uiw/react-codemirror";
+import { python } from "@codemirror/lang-python";
+import { oneDark } from "@codemirror/theme-one-dark";
+import { EditorView } from "@codemirror/view";
+import { Bot, Check, ChevronDown, CircleHelp, Code2, FileCode2, FilePlus2, FolderOpen, LoaderCircle, MessageCircle, Play, Plus, Save, Square, Terminal, Trash2, Upload, X } from "lucide-react";
+import "./_group.css";
+
+type WorkspaceFile = { name: string; content: string };
+type Workspace = { projectName: string; files: WorkspaceFile[] };
+const STORAGE_KEY = "programa-hablando.python-workspace.v1";
+const starterCode = `# ¡Hola! Este es tu espacio de Python.
+# Cambiá el código y tocá Ejecutar para ver la salida.
+
+nombre = "mundo"
+print(f"Hola, {nombre} 👋")
+`;
+const defaultWorkspace = (): Workspace => ({ projectName: "mi-proyecto", files: [{ name: "main.py", content: starterCode }] });
+const loadWorkspace = (): Workspace => { try { const saved = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "null"); if (!saved || !Array.isArray(saved.files)) return defaultWorkspace(); const files: WorkspaceFile[] = (saved.files as WorkspaceFile[]).filter((f: WorkspaceFile) => f?.name && typeof f.content === "string").slice(0, 20); if (!files.some((f: WorkspaceFile) => f.name === "main.py")) files.unshift(defaultWorkspace().files[0]); return { projectName: saved.projectName || "mi-proyecto", files }; } catch { return defaultWorkspace(); } };
+const validName = (value: string) => { const name = value.trim().replaceAll("\\", "/").split("/").pop()?.replace(/[^\p{L}\p{N}_.-]/gu, "-").replace(/-+/g, "-").replace(/^\.+|\.+$/g, ""); if (!name) return null; const result = name.includes(".") ? name : `${name}.py`; return /\.(py|txt|json|csv)$/i.test(result) ? result.slice(0, 96) : null; };
+
+export function Current() {
+  const [workspace, setWorkspace] = useState<Workspace>(loadWorkspace);
+  const [activeFileName, setActiveFileName] = useState("main.py");
+  const [openTabs, setOpenTabs] = useState(["main.py"]);
+  const [saveStatus, setSaveStatus] = useState<"saving" | "saved" | "error">("saved");
+  const [showFiles, setShowFiles] = useState(false), [assistantOpen, setAssistantOpen] = useState(false), [newForm, setNewForm] = useState(false);
+  const [newName, setNewName] = useState(""), [fileError, setFileError] = useState<string | null>(null), [isRunning, setIsRunning] = useState(false);
+  const [runtimeState, setRuntimeState] = useState<"idle"|"loading"|"running"|"ready"|"error">("idle"), [consoleOutput, setConsoleOutput] = useState(""), [consoleHasError, setConsoleHasError] = useState(false), [runDuration, setRunDuration] = useState<number|null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null), newInputRef = useRef<HTMLInputElement>(null);
+  const activeFile = useMemo(() => workspace.files.find((f) => f.name === activeFileName) ?? workspace.files[0], [activeFileName, workspace.files]);
+  useEffect(() => { const timer = window.setTimeout(() => { setSaveStatus("saving"); try { localStorage.setItem(STORAGE_KEY, JSON.stringify(workspace)); setSaveStatus("saved"); } catch { setSaveStatus("error"); } }, 250); return () => window.clearTimeout(timer); }, [workspace]);
+  useEffect(() => { if (newForm) newInputRef.current?.focus(); }, [newForm]);
+  const update = useCallback((name: string, content: string) => setWorkspace((w) => ({ ...w, files: w.files.map((f) => f.name === name ? { ...f, content } : f) })), []);
+  const openFile = (name: string) => { setActiveFileName(name); setOpenTabs((tabs) => tabs.includes(name) ? tabs : [...tabs, name]); setShowFiles(false); };
+  const closeTab = (name: string) => { const next = openTabs.filter((t) => t !== name); const tabs = next.length ? next : ["main.py"]; setOpenTabs(tabs); if (activeFileName === name) setActiveFileName(tabs[tabs.length - 1]); };
+  const createFile = (event: FormEvent) => { event.preventDefault(); const name = validName(newName); if (!name) return setFileError("Usá un nombre de archivo .py, .txt, .json o .csv."); if (workspace.files.some((f) => f.name.toLowerCase() === name.toLowerCase())) return setFileError("Ya existe un archivo con ese nombre."); setWorkspace((w) => ({ ...w, files: [...w.files, { name, content: "" }] })); setNewName(""); setNewForm(false); setFileError(null); openFile(name); };
+  const deleteFile = (name: string) => { if (name === "main.py") return setFileError("main.py es el archivo de inicio y no se puede borrar."); setWorkspace((w) => ({ ...w, files: w.files.filter((f) => f.name !== name) })); setOpenTabs((tabs) => tabs.filter((t) => t !== name)); if (activeFileName === name) setActiveFileName("main.py"); };
+  const importFiles = async (list: FileList | null) => { for (const file of Array.from(list ?? []).slice(0, 10)) { const name = validName(file.name); if (name && /\.(py|txt|json|csv)$/i.test(name)) { const content = await file.text(); setWorkspace((w) => ({ ...w, files: w.files.some((f) => f.name === name) ? w.files.map((f) => f.name === name ? { name, content } : f) : [...w.files, { name, content }] })); openFile(name); } } };
+  const runCode = () => { if (isRunning) return; setIsRunning(true); setRuntimeState("loading"); setConsoleHasError(false); setConsoleOutput("Preparando Python…"); setRunDuration(null); window.setTimeout(() => { setIsRunning(false); setRuntimeState("ready"); setConsoleOutput("Hola, mundo 👋"); setRunDuration(42); }, 500); };
+  const stopCode = () => { setIsRunning(false); setRuntimeState("ready"); setConsoleOutput("Ejecución detenida."); };
+  const newProject = () => { setWorkspace(defaultWorkspace()); setActiveFileName("main.py"); setOpenTabs(["main.py"]); setConsoleOutput(""); setRuntimeState("idle"); };
+  return <main className="python-ide">
+    <header className="ide-topbar"><div className="ide-brand"><div className="ide-brand-mark"><Code2 size={19}/></div><div className="ide-brand-copy"><span>CoreX</span><small>tu espacio de Python</small></div></div>
+      <button type="button" className="ide-icon-button ide-mobile-files" onClick={() => setShowFiles((v) => !v)} aria-label="Abrir archivos"><FolderOpen size={17}/></button>
+      <div className="ide-project-title"><input value={workspace.projectName} onChange={(e) => setWorkspace((w) => ({ ...w, projectName: e.target.value.slice(0, 64) }))} aria-label="Nombre del proyecto"/><ChevronDown size={13}/></div>
+      <div className="ide-save-status">{saveStatus === "saving" ? <Save size={14}/> : saveStatus === "saved" ? <Check size={14}/> : <CircleHelp size={14}/>}<span>{saveStatus === "saving" ? "Guardando" : saveStatus === "saved" ? "Guardado" : "Sin espacio"}</span></div>
+      <div className="ide-topbar-actions"><span className="ide-language-badge"><span/> Python</span><button type="button" className={`ide-assistant-toggle ${assistantOpen ? "is-active" : ""}`} onClick={() => setAssistantOpen((v) => !v)}><Bot size={15}/><span>Asistente</span></button>{isRunning ? <button type="button" className="ide-run-button is-stop" onClick={stopCode}><Square size={13} fill="currentColor"/><span>Detener</span></button> : <button type="button" className="ide-run-button" onClick={runCode}><Play size={14} fill="currentColor"/><span>{runtimeState === "loading" ? "Iniciando Python…" : "Ejecutar"}</span></button>}</div>
+    </header>
+    <div className="ide-body">{showFiles && <button type="button" className="ide-mobile-backdrop" onClick={() => setShowFiles(false)} aria-label="Cerrar panel"/>}
+      <aside className={`ide-file-sidebar ${showFiles ? "is-mobile-open" : ""}`}><div className="ide-sidebar-heading"><div><FolderOpen size={14}/><span>Archivos</span></div><div className="ide-sidebar-actions"><button type="button" onClick={() => setNewForm((v) => !v)} aria-label="Crear archivo"><FilePlus2 size={15}/></button><button type="button" onClick={() => fileInputRef.current?.click()} aria-label="Importar archivos"><Upload size={14}/></button><input ref={fileInputRef} type="file" multiple accept=".py,.txt,.json,.csv" hidden onChange={(e) => { void importFiles(e.currentTarget.files); e.currentTarget.value = ""; }}/></div></div>
+        <div className="ide-file-list">{workspace.files.map((file) => <div key={file.name} className={`ide-file-row ${activeFile?.name === file.name ? "is-active" : ""}`}><button type="button" onClick={() => openFile(file.name)}><FileCode2 size={14} className={file.name.endsWith(".py") ? "ide-python-file" : ""}/><span>{file.name}</span></button>{file.name !== "main.py" && <button type="button" className="ide-file-delete" onClick={() => deleteFile(file.name)} aria-label={`Borrar ${file.name}`}><Trash2 size={13}/></button>}</div>)}</div>
+        {newForm && <form className="ide-new-file-form" onSubmit={createFile}><input ref={newInputRef} value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="nombre.py" aria-label="Nombre del nuevo archivo"/><button type="submit" aria-label="Confirmar"><Check size={14}/></button><button type="button" onClick={() => setNewForm(false)} aria-label="Cancelar"><X size={14}/></button></form>}{fileError && <p className="ide-file-error">{fileError}</p>}
+        <div className="ide-sidebar-bottom"><button type="button" onClick={newProject}><Plus size={15}/><span>Proyecto nuevo</span></button><div className="ide-python-runtime"><span className="ide-status-dot"/> Python corre en tu navegador</div></div>
+      </aside>
+      <section className="ide-main-column"><div className="ide-editor-tabs">{openTabs.filter((tab) => workspace.files.some((f) => f.name === tab)).map((tab) => <div key={tab} className={`ide-editor-tab ${tab === activeFile?.name ? "is-active" : ""}`}><button type="button" onClick={() => setActiveFileName(tab)}><FileCode2 size={13} className="ide-python-file"/>{tab}</button>{tab !== "main.py" && <button type="button" onClick={() => closeTab(tab)} aria-label={`Cerrar ${tab}`}><X size={12}/></button>}</div>)}<span className="ide-editor-tab-space"/><button type="button" className="ide-clear-console" onClick={() => setConsoleOutput("")}><Terminal size={14}/><span>Consola</span></button></div>
+        <div className="ide-code-area">{activeFile ? <CodeMirror key={activeFile.name} value={activeFile.content} height="100%" theme={oneDark} extensions={[...(activeFile.name.endsWith(".py") ? [python()] : []), EditorView.lineWrapping]} onChange={(value) => update(activeFile.name, value)} basicSetup={{ lineNumbers:true, foldGutter:true, highlightActiveLine:true, highlightActiveLineGutter:true, bracketMatching:true, closeBrackets:true, autocompletion:true }} aria-label={`Editor de ${activeFile.name}`}/> : <div className="ide-empty-editor"><FileCode2 size={24}/><p>Elegí un archivo para empezar.</p></div>}</div>
+        <section className="ide-console"><div className="ide-console-heading"><div><Terminal size={15}/><span>Consola</span></div><div className="ide-console-meta"><span className={`ide-run-status ${runtimeState === "error" ? "has-error" : isRunning ? "is-running" : ""}`}>{isRunning && <LoaderCircle size={12} className="ide-spin"/>}{runtimeState === "loading" ? "Preparando" : runtimeState === "running" ? "Ejecutando" : runtimeState === "error" ? "Con error" : runtimeState === "ready" ? "Listo" : "Esperando"}</span>{runDuration !== null && <span>{runDuration} ms</span>}<button type="button" onClick={() => { setConsoleOutput(""); setRunDuration(null); }} aria-label="Limpiar consola"><Trash2 size={13}/></button></div></div><pre className={`ide-console-output ${consoleHasError ? "has-error" : ""}`}>{consoleOutput || <span className="ide-console-placeholder">Tocá Ejecutar para ver la salida de main.py.</span>}</pre></section>
+      </section>
+      {assistantOpen && <aside className="ide-assistant-panel"><div className="ide-assistant-heading"><div><Bot size={17}/><span>Asistente</span></div><button type="button" onClick={() => setAssistantOpen(false)} aria-label="Cerrar asistente"><X size={16}/></button></div><div className="ide-assistant-empty"><div className="ide-assistant-icon"><MessageCircle size={20}/></div><h2>IA opcional</h2><p>El editor y la ejecución de Python funcionan sin IA.</p><div className="ide-provider-note"><strong>El asistente aún no está conectado</strong><span>Este editor todavía no envía solicitudes a Router IA. Su clave se mantiene fuera del navegador.</span></div><p className="ide-provider-examples">El generador principal de CoreX sí usa Router IA.</p></div><div className="ide-assistant-footer">El asistente del editor se activará cuando se integre con Router IA.</div></aside>}
+    </div><footer className="ide-statusbar"><div><span className="ide-status-dot"/> <span>Listo</span><span className="ide-status-separator">·</span><span>Python</span></div><div><span>UTF-8</span><span className="ide-status-separator">·</span><span>LF</span><span className="ide-status-separator">·</span><span>{activeFile?.name ?? "sin archivo"}</span></div></footer>
+  </main>;
+}
+
+export default Current;

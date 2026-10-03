@@ -1,0 +1,83 @@
+# Revisar los servicios existentes antes de aplicar este Blueprint.
+# No reemplazar secretos actuales: usar los valores ya configurados en Render.
+services:
+  - type: web
+    name: router-ia-standalone
+    runtime: docker
+    rootDir: router-ia
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    plan: free
+    autoDeployTrigger: "off"
+    healthCheckPath: /health
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: ROUTER_APP_TOKEN
+        sync: false
+      - key: ROUTER_ADMIN_TOKEN
+        sync: false
+      - key: ROUTER_SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: ROUTER_PROVIDER_ENCRYPTION_KEY
+        sync: false
+  - type: web
+    name: CoreX
+    runtime: node
+    rootDir: corex
+    plan: free
+    autoDeployTrigger: "off"
+    buildCommand: corepack enable && corepack prepare pnpm@10.26.1 --activate && pnpm install --frozen-lockfile && pnpm run build
+    startCommand: pnpm start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: VITE_SUPABASE_URL
+        sync: false
+      - key: VITE_SUPABASE_PUBLIC_KEY
+        sync: false
+      - key: SESSION_SECRET
+        sync: false
+      - key: ROUTER_IA_URL
+        sync: false
+      - key: ROUTER_IA_TOKEN
+        fromService:
+          type: web
+          name: router-ia-standalone
+          envVarKey: ROUTER_APP_TOKEN
+      - key: PRISMA_MODULE_ENABLED
+        value: "false"
+      - key: VITE_ENABLE_PRISMA_CHAT
+        value: "false"
+  - type: web
+    name: corexfull-prisma
+    runtime: node
+    rootDir: prisma
+    plan: free
+    autoDeployTrigger: "off"
+    buildCommand: corepack enable && corepack prepare pnpm@10.26.1 --activate && pnpm install --frozen-lockfile && pnpm run build
+    startCommand: pnpm start
+    healthCheckPath: /api/healthz
+    envVars:
+      - key: NODE_VERSION
+        value: 22.22.0
+      - key: NODE_ENV
+        value: production
+      - key: AI_ROUTER_BASE_URL
+        sync: false
+      - key: AI_ROUTER_API_KEY
+        fromService:
+          type: web
+          name: router-ia-standalone
+          envVarKey: ROUTER_APP_TOKEN
+      - key: AI_ROUTER_CHAT_MODEL
+        value: router-ia-auto
+      - key: AI_ROUTER_STREAM
+        value: "false"

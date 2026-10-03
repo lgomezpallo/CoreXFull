@@ -1,0 +1,196 @@
+.corex-app-shell {
+  --builder-ink: #20382f;
+  --builder-muted: #748078;
+  --builder-line: #e6eae4;
+  --builder-paper: #ffffff;
+  --builder-canvas: #f5f7f3;
+  --builder-green: #356f59;
+  --builder-green-dark: #285844;
+  --builder-green-soft: #edf4ef;
+  --builder-orange: #e7a46d;
+  height: 100dvh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+  color: #20382f;
+  background: #f5f7f3;
+}
+.corex-primary-nav {
+  position: relative;
+  z-index: 40;
+  flex: 0 0 50px;
+  min-height: 50px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 5px;
+  padding: 6px 14px;
+  border-bottom: 1px solid #e1e7df;
+  background: rgba(255, 255, 255, .96);
+  backdrop-filter: blur(10px);
+}
+.corex-brand-mini {
+  margin-right: 8px;
+  color: #365c49;
+  font-size: 10px;
+  font-weight: 900;
+  letter-spacing: .04em;
+  white-space: nowrap;
+  opacity: .82;
+}
+.corex-primary-nav button {
+  min-height: 35px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 0 12px;
+  border: 1px solid transparent;
+  border-radius: 9px;
+  color: #68766c;
+  background: transparent;
+  font: inherit;
+  font-size: 10px;
+  font-weight: 800;
+  cursor: pointer;
+}
+.corex-primary-nav button:hover { color: #315b46; background: #f5f8f4; }
+.corex-primary-nav button.is-active {
+  border-color: #d8e5da;
+  color: #285844;
+  background: #edf4ef;
+}
+.corex-app-content {
+  flex: 1 1 auto;
+  min-height: 0;
+  overflow: hidden;
+}
+.corex-app-content > .builder-shell,
+.corex-app-content > .laboratory-workspace {
+  height: 100%;
+  min-height: 100%;
+}
+
+/* CoreX owns the main navigation. Keep Builder's header only as a compact stage strip. */
+.corex-app-shell .builder-workspace-switch,
+.corex-app-shell .builder-settings-button,
+.corex-app-shell .builder-brand,
+.corex-app-shell .builder-topbar-right {
+  display: none !important;
+}
+.corex-app-shell .builder-topbar {
+  height: 52px !important;
+  min-height: 52px !important;
+  justify-content: center !important;
+  gap: 0 !important;
+  padding: 0 12px !important;
+  background: #fff !important;
+}
+.corex-app-shell .builder-stage-nav {
+  margin: 0 auto !important;
+}
+
+/* Settings now lives at CoreX shell level, outside .builder-shell. Keep its controls compact and readable. */
+.corex-app-shell .builder-provider-settings input:not([type="checkbox"]),
+.corex-app-shell .builder-provider-settings select {
+  width: 100%;
+  min-height: 42px;
+  height: 42px;
+  padding: 0 12px;
+  border: 1px solid #dce5dc;
+  border-radius: 10px;
+  color: var(--builder-ink);
+  background: #fff;
+  font: inherit;
+  font-size: 12px;
+  line-height: 1.2;
+}
+.corex-app-shell .builder-provider-settings input:not([type="checkbox"]):focus,
+.corex-app-shell .builder-provider-settings select:focus {
+  outline: 2px solid #cfe1d4;
+  outline-offset: 1px;
+  border-color: #abc8b3;
+}
+.corex-app-shell .builder-provider-settings .builder-provider-test-all {
+  width: 100%;
+  min-height: 42px;
+  border-color: var(--builder-green);
+  color: #fff;
+  background: var(--builder-green);
+}
+.corex-app-shell .builder-provider-settings .builder-provider-test-all:disabled {
+  color: #fff;
+  background: #9db7a6;
+  border-color: #9db7a6;
+  opacity: .7;
+}
+.corex-app-shell .builder-provider-settings .builder-provider-card {
+  align-content: start;
+}
+
+@media (max-width: 640px) {
+  .corex-primary-nav {
+    justify-content: flex-start;
+    gap: 3px;
+    overflow-x: auto;
+    scrollbar-width: none;
+    padding-inline: 8px;
+  }
+  .corex-primary-nav::-webkit-scrollbar { display: none; }
+  .corex-brand-mini {
+    flex: 0 0 auto;
+    margin-right: 4px;
+    font-size: 9px;
+  }
+  .corex-primary-nav button {
+    flex: 0 0 auto;
+    min-height: 34px;
+    padding: 0 10px;
+    font-size: 9px;
+  }
+  .corex-app-shell .builder-topbar {
+    height: 48px !important;
+    min-height: 48px !important;
+    padding-inline: 8px !important;
+  }
+  .corex-app-shell .builder-provider-settings-content {
+    padding: 14px 16px 24px;
+    gap: 11px;
+  }
+  .corex-app-shell .builder-provider-card {
+    padding: 13px;
+    gap: 10px;
+  }
+
+  /* Keep the chat usable on mobile and let dynamic viewport units react to the Android keyboard. */
+  .corex-app-content > .builder-shell {
+    height: 100% !important;
+    min-height: 0 !important;
+    overflow: hidden !important;
+  }
+  .corex-app-shell .builder-body {
+    flex: 1 1 auto !important;
+    min-height: 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+  }
+  .corex-app-shell .builder-main:not(.is-source-stage):not(.is-assembly-stage) {
+    flex: 0 0 auto !important;
+    min-height: 0 !important;
+    overflow: visible !important;
+  }
+  .corex-app-shell .builder-conversation-panel {
+    height: max(260px, calc(100dvh - 230px)) !important;
+    min-height: 260px !important;
+    flex: 0 0 auto !important;
+  }
+  .corex-app-shell .builder-chat-scroll {
+    min-height: 0 !important;
+  }
+  .corex-app-shell .builder-composer-wrap {
+    flex: 0 0 auto !important;
+    padding-bottom: max(10px, env(safe-area-inset-bottom)) !important;
+    background: #fff;
+  }
+}

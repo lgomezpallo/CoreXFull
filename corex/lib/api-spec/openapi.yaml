@@ -1,0 +1,1320 @@
+openapi: 3.1.0
+info:
+  # Do not change the title, if the title changes, the import paths will be broken
+  title: Api
+  version: 0.1.0
+  description: API specification
+servers:
+  - url: /api
+    description: Base API path
+tags:
+  - name: health
+    description: Health operations
+  - name: app-builder
+    description: Natural-language app generation
+  - name: generated-projects
+    description: Source-project generation and validation
+  - name: router
+    description: User-owned Router IA providers
+paths:
+  /healthz:
+    get:
+      operationId: healthCheck
+      tags: [health]
+      summary: Health check
+      description: Returns server health status
+      responses:
+        "200":
+          description: Healthy
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/HealthStatus"
+  /builder/generate:
+    post:
+      operationId: generateAppBlueprint
+      tags: [app-builder]
+      summary: Generate or revise an app blueprint from a conversational request
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppBuilderInput"
+      responses:
+        "200":
+          description: Generated app blueprint and conversational response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBuilderResult"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: App generation failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/projects/{projectId}/jobs:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/BuilderProjectId"
+    post:
+      operationId: createBuilderProjectJob
+      tags: [generated-projects]
+      summary: Generate or revise a React project and validate its build
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuilderProjectJobInput"
+      responses:
+        "201":
+          description: Generation job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProjectJob"
+        "400":
+          description: Invalid project request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Authentication service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Another project job is already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: The Router IA could not generate a project
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/projects/{projectId}/builds:
+    parameters:
+      - name: projectId
+        in: path
+        required: true
+        schema:
+          $ref: "#/components/schemas/BuilderProjectId"
+    post:
+      operationId: createBuilderProjectBuild
+      tags: [generated-projects]
+      summary: Rebuild a saved React project from its source files
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuilderProjectBuildInput"
+      responses:
+        "201":
+          description: Build job accepted
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProjectJob"
+        "400":
+          description: Invalid project files
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Authentication service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: Another project job is already running
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/project-jobs/{jobId}:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getBuilderProjectJob
+      tags: [generated-projects]
+      summary: Read the stage and result of a generated-project job
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Current job state, source files, diagnostics, and ready preview
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProjectJob"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/project-jobs/{jobId}/status:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    get:
+      operationId: getBuilderProjectJobStatus
+      tags: [generated-projects]
+      summary: Read lightweight progress for a generated-project job
+      security:
+        - bearerAuth: []
+      responses:
+        "200":
+          description: Job stage without source files or preview HTML
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProjectJobStatus"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Authentication service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/project-jobs/{jobId}/runtime-check:
+    parameters:
+      - name: jobId
+        in: path
+        required: true
+        schema:
+          type: string
+          format: uuid
+    post:
+      operationId: reportBuilderProjectRuntimeCheck
+      tags: [generated-projects]
+      summary: Report a sandboxed browser smoke test for a project job
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/BuilderProjectRuntimeCheckInput"
+      responses:
+        "200":
+          description: Current job state after the isolated runtime check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/BuilderProjectJob"
+        "400":
+          description: Invalid runtime check result
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Job not found
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "409":
+          description: The preview is not awaiting a runtime check
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "503":
+          description: Authentication service temporarily unavailable
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/activate-module:
+    post:
+      operationId: activateBuilderModule
+      tags: [app-builder]
+      summary: Activate a user-approved, prebuilt app module
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/AppBuilderActivationInput"
+      responses:
+        "200":
+          description: Validated module activation
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppBuilderActivationResult"
+        "400":
+          description: Invalid or unapproved module
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "500":
+          description: Module activation failed unexpectedly
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /builder/reference-url:
+    post:
+      operationId: extractWebReference
+      tags: [app-builder]
+      summary: Extract visible text from a public webpage as an app reference
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/WebReferenceInput"
+      responses:
+        "200":
+          description: Page title and visible text suitable for use as a reference
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/WebReference"
+        "400":
+          description: Invalid request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "422":
+          description: The public webpage could not be safely fetched or parsed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /lab/analyze:
+    post:
+      operationId: analyzeLabProject
+      tags: [generated-projects]
+      summary: Analyze imported software evidence and propose a safe adaptation strategy
+      security:
+        - bearerAuth: []
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/LabAnalysisInput"
+      responses:
+        "200":
+          description: Static observations and Router IA adaptation analysis
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/LabAnalysisResult"
+        "400":
+          description: Invalid analysis request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Router IA could not analyze the evidence
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /router/status:
+    get:
+      operationId: getRouterStatus
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      summary: Get Router IA configuration and connection status
+      responses:
+        "200":
+          description: Router IA configuration state; secret values are never returned
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterConnectionStatus"
+  /router/providers:
+    get:
+      operationId: listRouterProviders
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "200":
+          description: User-owned providers
+          content:
+            application/json:
+              schema:
+                type: array
+                items: { $ref: "#/components/schemas/RouterProvider" }
+    post:
+      operationId: createRouterProvider
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouterProviderInput" }
+      responses:
+        "201":
+          description: Provider created
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouterProvider" }
+  /router/providers/{providerId}:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    patch:
+      operationId: updateRouterProvider
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema: { $ref: "#/components/schemas/RouterProviderUpdate" }
+      responses:
+        "200":
+          description: Provider updated
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/RouterProvider" }
+    delete:
+      operationId: deleteRouterProvider
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      responses:
+        "204": { description: Provider deleted }
+  /router/providers/{providerId}/test:
+    parameters:
+      - name: providerId
+        in: path
+        required: true
+        schema: { type: string, format: uuid }
+    post:
+      operationId: testRouterProvider
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      deprecated: true
+      responses:
+        "410":
+          description: Direct provider inference is disabled in CoreX
+          content:
+            application/json:
+              schema: { $ref: "#/components/schemas/ApiError" }
+  /router/test:
+    post:
+      operationId: testRouterConnection
+      tags: [router]
+      security: [{ bearerAuth: [] }]
+      summary: Check Router IA health without invoking a model
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/RouterConnectionTestInput"
+      responses:
+        "200":
+          description: Router IA health status; no prompt or provider inference is sent
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/RouterConnectionStatus"
+        "400":
+          description: Invalid Router test request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+  /prisma/chat:
+    post:
+      operationId: sendPrismaChat
+      tags: [prisma]
+      security: [{ bearerAuth: [] }]
+      summary: Send a conversational message through Router IA
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: "#/components/schemas/PrismaChatRequest"
+      responses:
+        "200":
+          description: Assistant response
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/PrismaChatResponse"
+        "400":
+          description: Invalid chat request
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "401":
+          description: Authentication required
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "404":
+          description: Prisma module is disabled
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "429":
+          description: Per-user message limit reached
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+        "502":
+          description: Router IA request failed
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/ApiError"
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+  schemas:
+    HealthStatus:
+      type: object
+      properties:
+        status:
+          type: string
+      required:
+        - status
+    AppBuilderTurn:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          maxLength: 1600
+      required: [role, content]
+    WebReferenceInput:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+      required: [url]
+    WebReference:
+      type: object
+      properties:
+        url:
+          type: string
+          format: uri
+          maxLength: 2048
+        title:
+          type: string
+          maxLength: 160
+        extractedText:
+          type: string
+          maxLength: 12000
+      required: [url, title, extractedText]
+    AppBuilderReference:
+      type: object
+      properties:
+        name:
+          type: string
+          minLength: 1
+          maxLength: 160
+        kind:
+          type: string
+          enum: [image, document, code, archive, apk, binary]
+        extractedText:
+          type: string
+          maxLength: 12000
+        imageDataUrl:
+          type: string
+          maxLength: 1200000
+          pattern: "^data:image/(jpeg|png|webp);base64,"
+      required: [name, kind, extractedText]
+    AppBuilderItem:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 64
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 240
+        value:
+          type: string
+          maxLength: 80
+        checked:
+          type: boolean
+      required: [id, title, description, value, checked]
+    AppBuilderSection:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 64
+        type:
+          type: string
+          enum: [stats, list, features, form, progress]
+        title:
+          type: string
+          maxLength: 120
+        description:
+          type: string
+          maxLength: 240
+        actionLabel:
+          type: string
+          maxLength: 48
+        items:
+          type: array
+          maxItems: 8
+          items:
+            $ref: "#/components/schemas/AppBuilderItem"
+      required: [id, type, title, description, actionLabel, items]
+    AppBuilderKind:
+      type: string
+      enum: [tasks, habits, expenses, prototype]
+    AppBuilderModuleId:
+      type: string
+      enum: [tasks-v1, habits-v1, expenses-v1]
+    AppBuilderExpansionOption:
+      type: object
+      properties:
+        moduleId:
+          $ref: "#/components/schemas/AppBuilderModuleId"
+        appKind:
+          type: string
+          enum: [tasks, habits, expenses]
+        name:
+          type: string
+          maxLength: 80
+        version:
+          type: string
+          maxLength: 24
+        summary:
+          type: string
+          maxLength: 240
+        capabilities:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 100
+        limitations:
+          type: array
+          maxItems: 8
+          items:
+            type: string
+            maxLength: 140
+        reason:
+          type: string
+          maxLength: 220
+        recommended:
+          type: boolean
+        runtimeCost:
+          type: integer
+          enum: [0]
+      required: [moduleId, appKind, name, version, summary, capabilities, limitations, reason, recommended, runtimeCost]
+    AppBuilderExpansionProposal:
+      type: object
+      properties:
+        status:
+          type: string
+          enum: [not-needed, approval-required, unavailable]
+        message:
+          type: string
+          maxLength: 400
+        options:
+          type: array
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/AppBuilderExpansionOption"
+      required: [status, message, options]
+    AppBlueprint:
+      type: object
+      properties:
+        title:
+          type: string
+          maxLength: 80
+        subtitle:
+          type: string
+          maxLength: 140
+        description:
+          type: string
+          maxLength: 240
+        accentColor:
+          type: string
+          enum: [violet, ocean, mint, amber]
+        appKind:
+          $ref: "#/components/schemas/AppBuilderKind"
+        sections:
+          type: array
+          minItems: 1
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AppBuilderSection"
+      required: [title, subtitle, description, accentColor, appKind, sections]
+    AppBuilderInput:
+      type: object
+      properties:
+        prompt:
+          type: string
+          minLength: 3
+          maxLength: 1600
+        previousBlueprint:
+          anyOf:
+            - $ref: "#/components/schemas/AppBlueprint"
+            - type: "null"
+        history:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/AppBuilderTurn"
+        referenceFiles:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AppBuilderReference"
+      required: [prompt, previousBlueprint, history, referenceFiles]
+    AppBuilderTask:
+      type: object
+      properties:
+        id:
+          type: string
+          maxLength: 80
+        title:
+          type: string
+          maxLength: 140
+        capability:
+          type: string
+          enum: [planning, structured-output]
+        taskType:
+          $ref: "#/components/schemas/RouterTaskType"
+      required: [id, title, capability, taskType]
+    AppBuilderResult:
+      type: object
+      properties:
+        assistantMessage:
+          type: string
+          maxLength: 600
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        expansionProposal:
+          $ref: "#/components/schemas/AppBuilderExpansionProposal"
+        tasks:
+          type: array
+          minItems: 1
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/AppBuilderTask"
+      required: [assistantMessage, blueprint, expansionProposal, tasks]
+    BuilderProjectId:
+      type: string
+      minLength: 1
+      maxLength: 80
+      pattern: "^[A-Za-z0-9][A-Za-z0-9_-]*$"
+    BuilderProjectJobId:
+      type: string
+      format: uuid
+    GeneratedProjectFile:
+      type: object
+      properties:
+        path:
+          type: string
+          minLength: 1
+          maxLength: 180
+        content:
+          type: string
+          maxLength: 70000
+      required: [path, content]
+    BuilderProjectJobInput:
+      type: object
+      properties:
+        mode:
+          type: string
+          enum: [builder, lab]
+        prompt:
+          type: string
+          minLength: 3
+          maxLength: 1600
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        history:
+          type: array
+          maxItems: 12
+          items:
+            $ref: "#/components/schemas/AppBuilderTurn"
+        referenceFiles:
+          type: array
+          maxItems: 5
+          items:
+            $ref: "#/components/schemas/AppBuilderReference"
+        files:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/GeneratedProjectFile"
+      required: [prompt, blueprint, history, referenceFiles, files]
+    LabStaticEvidence:
+      type: object
+      properties:
+        filePaths:
+          type: array
+          maxItems: 80
+          items: { type: string, maxLength: 180 }
+        dependencies:
+          type: array
+          maxItems: 80
+          items: { type: string, maxLength: 160 }
+        entryPoints:
+          type: array
+          maxItems: 40
+          items: { type: string, maxLength: 180 }
+        components:
+          type: array
+          maxItems: 60
+          items: { type: string, maxLength: 180 }
+        assets:
+          type: array
+          maxItems: 80
+          items: { type: string, maxLength: 180 }
+        strings:
+          type: array
+          maxItems: 100
+          items: { type: string, maxLength: 220 }
+        permissions:
+          type: array
+          maxItems: 60
+          items: { type: string, maxLength: 180 }
+        networkCalls:
+          type: array
+          maxItems: 60
+          items: { type: string, maxLength: 220 }
+        storage:
+          type: array
+          maxItems: 40
+          items: { type: string, maxLength: 180 }
+      required: [filePaths, dependencies, entryPoints, components, assets, strings, permissions, networkCalls, storage]
+    LabAnalysisInput:
+      type: object
+      properties:
+        sourceName:
+          type: string
+          minLength: 1
+          maxLength: 180
+        sourceKind:
+          type: string
+          enum: [apk, archive, code, document, image, website, binary]
+        goal:
+          type: string
+          maxLength: 1600
+        evidenceText:
+          type: string
+          minLength: 1
+          maxLength: 30000
+        evidence:
+          $ref: "#/components/schemas/LabStaticEvidence"
+        visuals:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/LabVisualEvidence"
+      required: [sourceName, sourceKind, goal, evidenceText, evidence]
+    LabVisualEvidence:
+      type: object
+      properties:
+        sourceName:
+          type: string
+          minLength: 1
+          maxLength: 180
+        imageDataUrl:
+          type: string
+          maxLength: 1200000
+          pattern: "^data:image/(jpeg|png|webp);base64,"
+      required: [sourceName, imageDataUrl]
+    LabAnalysisResult:
+      type: object
+      properties:
+        summary:
+          type: string
+          maxLength: 1600
+        architecture:
+          type: string
+          maxLength: 1600
+        capabilities:
+          type: array
+          maxItems: 12
+          items: { type: string, maxLength: 240 }
+        observed:
+          $ref: "#/components/schemas/LabStaticEvidence"
+        inferred:
+          type: array
+          maxItems: 12
+          items: { type: string, maxLength: 240 }
+        reusableModules:
+          type: array
+          maxItems: 12
+          items: { type: string, maxLength: 240 }
+        adaptationPlan:
+          type: array
+          maxItems: 10
+          items: { type: string, maxLength: 300 }
+        risks:
+          type: array
+          maxItems: 10
+          items: { type: string, maxLength: 240 }
+        blockedOperations:
+          type: array
+          maxItems: 8
+          items: { type: string, maxLength: 240 }
+      required: [summary, architecture, capabilities, observed, inferred, reusableModules, adaptationPlan, risks, blockedOperations]
+    BuilderProjectBuildInput:
+      type: object
+      properties:
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        files:
+          type: array
+          minItems: 1
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/GeneratedProjectFile"
+      required: [blueprint, files]
+    BuilderProjectJobStage:
+      type: string
+      enum: [planning, blueprint, generation, build, validation, correction, ready, error]
+    BuilderProjectFilePlan:
+      type: object
+      properties:
+        path:
+          type: string
+          maxLength: 180
+        operation:
+          type: string
+          enum: [create, update]
+        purpose:
+          type: string
+          maxLength: 320
+        allowedImports:
+          type: array
+          maxItems: 20
+          items:
+            type: string
+            maxLength: 180
+        exports:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 180
+        propsInterfaces:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 320
+        internalDependencies:
+          type: array
+          maxItems: 16
+          items:
+            type: string
+            maxLength: 180
+        acceptanceCriteria:
+          type: array
+          maxItems: 10
+          items:
+            type: string
+            maxLength: 320
+      required: [path, operation, purpose, allowedImports, exports, propsInterfaces, internalDependencies, acceptanceCriteria]
+    BuilderProjectFileProgress:
+      type: object
+      properties:
+        path:
+          type: string
+          maxLength: 180
+        status:
+          type: string
+          enum: [planned, generating, generated, correcting, corrected, error]
+        generationTaskTypes:
+          type: array
+          maxItems: 3
+          items:
+            $ref: "#/components/schemas/RouterTaskType"
+        resolvedGenerationTaskType:
+          allOf:
+            - $ref: "#/components/schemas/RouterTaskType"
+          nullable: true
+        correctionTaskTypes:
+          type: array
+          maxItems: 6
+          items:
+            $ref: "#/components/schemas/RouterTaskType"
+        resolvedCorrectionTaskTypes:
+          type: array
+          maxItems: 2
+          items:
+            $ref: "#/components/schemas/RouterTaskType"
+      required: [path, status, generationTaskTypes, resolvedGenerationTaskType, correctionTaskTypes, resolvedCorrectionTaskTypes]
+    BuilderProjectJob:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/BuilderProjectJobId"
+        projectId:
+          $ref: "#/components/schemas/BuilderProjectId"
+        stage:
+          $ref: "#/components/schemas/BuilderProjectJobStage"
+        statusMessage:
+          type: string
+          maxLength: 240
+        files:
+          type: array
+          maxItems: 32
+          items:
+            $ref: "#/components/schemas/GeneratedProjectFile"
+        plannedFiles:
+          type: array
+          maxItems: 52
+          items:
+            $ref: "#/components/schemas/BuilderProjectFilePlan"
+        generatedFiles:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 180
+        fileProgress:
+          type: array
+          maxItems: 52
+          items:
+            $ref: "#/components/schemas/BuilderProjectFileProgress"
+        correctedFiles:
+          type: array
+          maxItems: 52
+          items:
+            type: string
+            maxLength: 180
+        codingFallbackUsed:
+          type: boolean
+        codingEscalationFiles:
+          type: array
+          maxItems: 52
+          items:
+            type: string
+            maxLength: 180
+        diagnostics:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            maxLength: 1000
+        previewHtml:
+          type: ["string", "null"]
+          maxLength: 1500000
+        error:
+          type: ["string", "null"]
+          maxLength: 240
+        attempt:
+          type: integer
+          minimum: 0
+          maximum: 3
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, projectId, stage, statusMessage, files, plannedFiles, generatedFiles, fileProgress, correctedFiles, codingFallbackUsed, codingEscalationFiles, diagnostics, previewHtml, error, attempt, updatedAt]
+    BuilderProjectJobStatus:
+      type: object
+      properties:
+        id:
+          $ref: "#/components/schemas/BuilderProjectJobId"
+        projectId:
+          $ref: "#/components/schemas/BuilderProjectId"
+        stage:
+          $ref: "#/components/schemas/BuilderProjectJobStage"
+        statusMessage:
+          type: string
+          maxLength: 240
+        plannedFiles:
+          type: array
+          maxItems: 52
+          items:
+            $ref: "#/components/schemas/BuilderProjectFilePlan"
+        generatedFiles:
+          type: array
+          maxItems: 32
+          items:
+            type: string
+            maxLength: 180
+        fileProgress:
+          type: array
+          maxItems: 52
+          items:
+            $ref: "#/components/schemas/BuilderProjectFileProgress"
+        correctedFiles:
+          type: array
+          maxItems: 52
+          items:
+            type: string
+            maxLength: 180
+        codingFallbackUsed:
+          type: boolean
+        codingEscalationFiles:
+          type: array
+          maxItems: 52
+          items:
+            type: string
+            maxLength: 180
+        diagnostics:
+          type: array
+          maxItems: 12
+          items:
+            type: string
+            maxLength: 1000
+        previewReady:
+          type: boolean
+        error:
+          type: ["string", "null"]
+          maxLength: 240
+        attempt:
+          type: integer
+          minimum: 0
+          maximum: 3
+        updatedAt:
+          type: string
+          format: date-time
+      required: [id, projectId, stage, statusMessage, plannedFiles, generatedFiles, fileProgress, correctedFiles, codingFallbackUsed, codingEscalationFiles, diagnostics, previewReady, error, attempt, updatedAt]
+    BuilderProjectRuntimeCheckInput:
+      type: object
+      properties:
+        ok:
+          type: boolean
+        message:
+          type: string
+          maxLength: 240
+        controlsBefore:
+          type: integer
+          minimum: 0
+          maximum: 100
+        changed:
+          type: boolean
+      required: [ok]
+    AppBuilderActivationInput:
+      type: object
+      properties:
+        moduleId:
+          $ref: "#/components/schemas/AppBuilderModuleId"
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        expansionProposal:
+          $ref: "#/components/schemas/AppBuilderExpansionProposal"
+      required: [moduleId, blueprint, expansionProposal]
+    AppBuilderActivationResult:
+      type: object
+      properties:
+        blueprint:
+          $ref: "#/components/schemas/AppBlueprint"
+        module:
+          $ref: "#/components/schemas/AppBuilderExpansionOption"
+      required: [blueprint, module]
+    RouterTaskType:
+      type: string
+      enum: [chat, coding, reasoning, summarization, vision, document, long_context, fast]
+    RouterConnectionStatus:
+      type: object
+      properties:
+        configured:
+          type: boolean
+        connected:
+          type: boolean
+        lastTestAt:
+          type: ["string", "null"]
+          format: date-time
+        lastLatencyMs:
+          type: ["integer", "null"]
+          minimum: 0
+        message:
+          type: ["string", "null"]
+          maxLength: 240
+      required:
+        - configured
+        - connected
+        - lastTestAt
+        - lastLatencyMs
+        - message
+    RouterConnectionTestInput:
+      type: object
+      properties:
+        task_type:
+          type: string
+          enum: [chat]
+      required: [task_type]
+    PrismaChatMessage:
+      type: object
+      properties:
+        role:
+          type: string
+          enum: [user, assistant]
+        content:
+          type: string
+          minLength: 1
+          maxLength: 4000
+      required: [role, content]
+    PrismaChatRequest:
+      type: object
+      properties:
+        messages:
+          type: array
+          minItems: 1
+          maxItems: 60
+          items:
+            $ref: "#/components/schemas/PrismaChatMessage"
+      required: [messages]
+    PrismaChatResponse:
+      type: object
+      properties:
+        message:
+          type: string
+          minLength: 1
+          maxLength: 8000
+      required: [message]
+    RouterProvider:
+      type: object
+      properties:
+        id: { type: string, format: uuid }
+        name: { type: string }
+        kind: { type: string, enum: [openai, anthropic, gemini, openai-compatible, groq] }
+        baseUrl: { type: ["string", "null"] }
+        model: { type: string }
+        apiKeyPreview: { type: string }
+        isDefault: { type: boolean }
+        capabilities: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/RouterTaskType" } }
+        priority: { type: integer, minimum: 0, maximum: 100 }
+        isActive: { type: boolean }
+        status: { type: string }
+        healthStatus: { type: string }
+        lastTestAt: { type: ["string", "null"], format: date-time }
+      required: [id, name, kind, baseUrl, model, apiKeyPreview, isDefault, capabilities, priority, isActive, status, healthStatus, lastTestAt]
+    RouterProviderInput:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        kind: { type: string, enum: [openai, anthropic, gemini, openai-compatible, groq] }
+        baseUrl: { type: string, maxLength: 500 }
+        model: { type: string, minLength: 1, maxLength: 160 }
+        apiKey: { type: string, minLength: 1, maxLength: 4096 }
+        isDefault: { type: boolean }
+        capabilities: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/RouterTaskType" } }
+        priority: { type: integer, minimum: 0, maximum: 100 }
+        isActive: { type: boolean }
+      required: [name, kind, model, isDefault]
+    RouterProviderUpdate:
+      type: object
+      properties:
+        name: { type: string, minLength: 1, maxLength: 80 }
+        baseUrl: { type: string, maxLength: 500 }
+        model: { type: string, minLength: 1, maxLength: 160 }
+        apiKey: { type: string, minLength: 1, maxLength: 4096 }
+        isDefault: { type: boolean }
+        capabilities: { type: array, minItems: 1, maxItems: 8, items: { $ref: "#/components/schemas/RouterTaskType" } }
+        priority: { type: integer, minimum: 0, maximum: 100 }
+        isActive: { type: boolean }
+    RouterProviderTestResult:
+      type: object
+      properties:
+        ok: { type: boolean }
+        latencyMs: { type: ["integer", "null"] }
+        message: { type: string }
+      required: [ok, latencyMs, message]
+    ApiError:
+      type: object
+      properties:
+        error:
+          type: string
+          maxLength: 240
+      required: [error]

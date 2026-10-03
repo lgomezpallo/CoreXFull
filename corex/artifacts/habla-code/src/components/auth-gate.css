@@ -1,0 +1,227 @@
+.auth-screen {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  padding: 32px 18px;
+  background:
+    radial-gradient(ellipse at 18% 0%, rgba(118, 90, 255, 0.12), transparent 42%),
+    #f7f7fb;
+  color: #171927;
+  font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+}
+
+.auth-card {
+  width: min(100%, 440px);
+  padding: clamp(26px, 6vw, 42px);
+  border: 1px solid #e8e8f0;
+  border-radius: 24px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(28, 29, 53, 0.09);
+}
+
+.auth-eyebrow {
+  margin: 0 0 12px;
+  color: #6b54dc;
+  font-size: 0.78rem;
+  font-weight: 750;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+}
+
+.auth-card h1 {
+  margin: 0;
+  font-size: clamp(1.7rem, 5vw, 2.15rem);
+  letter-spacing: -0.04em;
+  line-height: 1.1;
+}
+
+.auth-description {
+  margin: 13px 0 25px;
+  color: #626579;
+  font-size: 0.98rem;
+  line-height: 1.55;
+}
+
+.auth-form {
+  display: grid;
+  gap: 10px;
+}
+
+.auth-form label {
+  margin-top: 4px;
+  color: #34364a;
+  font-size: 0.88rem;
+  font-weight: 650;
+}
+
+.auth-form input {
+  width: 100%;
+  min-height: 48px;
+  padding: 0 14px;
+  border: 1px solid #d9dbe7;
+  border-radius: 12px;
+  outline: none;
+  background: #fff;
+  color: #171927;
+  font: inherit;
+}
+
+.auth-form input:focus {
+  border-color: #7863e8;
+  box-shadow: 0 0 0 3px rgba(120, 99, 232, 0.15);
+}
+
+.auth-primary-button,
+.auth-secondary-button {
+  min-height: 46px;
+  padding: 0 16px;
+  border-radius: 12px;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-primary-button {
+  margin-top: 10px;
+  border: 1px solid #634fe0;
+  background: #6c57e6;
+  color: white;
+}
+
+.auth-primary-button:hover:not(:disabled) {
+  background: #5945d0;
+}
+
+.auth-primary-button:disabled {
+  cursor: wait;
+  opacity: 0.7;
+}
+
+.auth-secondary-button {
+  border: 1px solid #d9dbe7;
+  background: white;
+  color: #393b4e;
+}
+
+.auth-footnote {
+  margin: 20px 0 0;
+  color: #74768a;
+  font-size: 0.8rem;
+  line-height: 1.5;
+}
+
+.auth-error {
+  margin: 5px 0;
+  color: #b32638;
+  font-size: 0.87rem;
+  line-height: 1.45;
+}
+
+.auth-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+}
+
+.auth-backup-notice {
+  display: none !important;
+}
+
+.auth-backup-notice button,
+.auth-account-toolbar button {
+  flex: none;
+  border: 0;
+  background: transparent;
+  color: #604bd3;
+  font: inherit;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.auth-account-toolbar {
+  position: fixed;
+  z-index: 1000;
+  top: 12px;
+  right: 14px;
+  display: flex;
+  max-width: min(360px, calc(100vw - 28px));
+  align-items: center;
+  gap: 10px;
+  padding: 8px 11px 8px 13px;
+  border: 1px solid rgba(219, 220, 230, 0.92);
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.95);
+  box-shadow: 0 5px 18px rgba(32, 34, 55, 0.1);
+  color: #4c4e61;
+  font-size: 0.78rem;
+  backdrop-filter: blur(12px);
+}
+
+.auth-account-toolbar span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.auth-signout-error {
+  position: fixed;
+  z-index: 1200;
+  top: 56px;
+  right: 16px;
+  max-width: min(400px, calc(100vw - 32px));
+  padding: 9px 12px;
+  border: 1px solid #f1c1c7;
+  border-radius: 10px;
+  background: white;
+  color: #a32032;
+  font-size: 0.82rem;
+}
+
+.auth-preview-banner {
+  position: fixed;
+  z-index: 1300;
+  right: 12px;
+  bottom: 12px;
+  left: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 14px;
+  padding: 10px 14px;
+  border: 1px solid #d8d1ff;
+  border-radius: 12px;
+  background: rgba(255, 255, 255, 0.97);
+  box-shadow: 0 8px 28px rgba(33, 28, 74, 0.14);
+  color: #39364c;
+  font-size: 0.82rem;
+  line-height: 1.4;
+}
+
+.auth-preview-banner a {
+  flex: none;
+  color: #604bd3;
+  font-weight: 700;
+  text-decoration: none;
+}
+
+.auth-preview-banner a:hover {
+  text-decoration: underline;
+}
+
+@media (max-width: 520px) {
+  .auth-account-toolbar {
+    position: relative;
+    z-index: 20;
+    top: auto;
+    right: auto;
+    width: fit-content;
+    max-width: calc(100vw - 20px);
+    margin: 8px 10px 0 auto;
+  }
+
+  .auth-preview-banner {
+    align-items: flex-start;
+    flex-direction: column;
+    gap: 5px;
+  }
+}

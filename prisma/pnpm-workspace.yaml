@@ -1,0 +1,16 @@
+packages:
+  - artifacts/ai-companion
+  - artifacts/api-server
+  - lib/api-client-react
+  - lib/api-spec
+  - lib/api-zod
+  - lib/db
+
+onlyBuiltDependencies:
+  - esbuild
+
+catalog:
+  '@tanstack/react-query': ^5.90.21
+  '@types/node': ^25.3.3
+  drizzle-orm: ^0.45.2
+  zod: ^3.25.76

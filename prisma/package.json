@@ -1,0 +1,17 @@
+{
+  "name": "prisma-project",
+  "version": "1.0.0",
+  "private": true,
+  "packageManager": "pnpm@10.26.1",
+  "scripts": {
+    "build": "pnpm run typecheck && pnpm --filter @workspace/api-server build && pnpm --filter @workspace/ai-companion exec expo export --platform web",
+    "start": "pnpm --filter @workspace/api-server start",
+    "dev:api": "pnpm --filter @workspace/api-server dev",
+    "dev:mobile": "pnpm --filter @workspace/ai-companion dev",
+    "typecheck:libs": "tsc --build lib/db lib/api-zod lib/api-client-react",
+    "typecheck": "pnpm run typecheck:libs && pnpm --filter @workspace/ai-companion typecheck && pnpm --filter @workspace/api-server typecheck"
+  },
+  "devDependencies": {
+    "typescript": "~5.9.3"
+  }
+}

@@ -1,0 +1,6 @@
+inspection/
+**/node_modules/
+**/dist/
+**/.expo/
+**/*.tsbuildinfo
+**/.env

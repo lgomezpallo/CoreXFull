@@ -1,0 +1,28 @@
+kind = "web"
+previewPath = "/"
+title = "CoreX"
+description = "CoreX convierte ideas en aplicaciones mediante conversación en español y conserva proyectos con respaldos locales y Supabase."
+version = "1.0.0"
+id = "artifacts/habla-code"
+router = "path"
+
+[[services]]
+name = "web"
+paths = [ "/" ]
+localPort = 20821
+
+[services.development]
+run = "pnpm --filter @workspace/habla-code run dev"
+
+[services.production]
+build = [ "pnpm", "--filter", "@workspace/habla-code", "run", "build" ]
+serve = "static"
+publicDir = "artifacts/habla-code/dist/public"
+
+[[services.production.rewrites]]
+from = "/*"
+to = "/index.html"
+
+[services.env]
+PORT = "20821"
+BASE_PATH = "/"

@@ -1,0 +1,5 @@
+CoreX — full del código fuente y configuración versionada
+Creado: 2026-09-29 11:55:26 -03
+Archivos incluidos: 294
+Incluye los artifacts, librerías, contratos API, migraciones y pruebas versionadas.
+No incluye dependencias instaladas, builds, .git, datos locales, secretos, .env*, adjuntos, TOKEN-API.txt ni archivos .bat.

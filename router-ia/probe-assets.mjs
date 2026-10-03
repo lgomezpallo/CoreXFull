@@ -20,10 +20,12 @@ function chunk(type, data) {
   return Buffer.concat([length, typeBytes, data, checksum]);
 }
 
-export function makeSolidPng(width = 32, height = 32, rgb = [30, 144, 255]) {
-  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 10 || height < 10 || width > 128 || height > 128) {
+export function makeSolidPng(width = 64, height = 64, rgb = [30, 144, 255]) {
+  if (!Number.isInteger(width) || !Number.isInteger(height) || width < 1 || height < 1 || width > 128 || height > 128) {
     throw new Error("Invalid probe image dimensions.");
   }
+  width = Math.max(64, width);
+  height = Math.max(64, height);
   const [red, green, blue] = rgb.map((value) => Math.max(0, Math.min(255, Number(value) || 0)));
   const row = Buffer.alloc(1 + width * 3);
   row[0] = 0;

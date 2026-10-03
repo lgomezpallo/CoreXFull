@@ -31,8 +31,9 @@ test("continuing the chat preserves build availability without generating a blue
     assert.deepEqual(body.response_format, { type: "json_object" });
     const context = JSON.parse(body.messages[1].content);
     assert.equal(context.designBrief, input.designBrief);
-    assert.deepEqual(context.history, input.history);
-    assert.equal(context.newMessage, "Sí");
+    assert.deepEqual(body.messages.slice(2, -1), input.history);
+    assert.deepEqual(body.messages.at(-1), { role: "user", content: "Sí" });
+    assert.equal("history" in context, false);
     return Response.json({ choices: [{ finish_reason: "stop", message: { content: JSON.stringify({ assistantMessage: "¿Qué necesita hacer el encargado?", designBrief: input.designBrief, readyToBuild: false }) } }] });
   };
   const result = await converseAboutApp({ ...input, readyToBuild: true });

@@ -1941,7 +1941,7 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
     if (/^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches)[\s!.¿?¡]*$/i.test(content)) {
       setProjectCollectionForProject(projectId, (project) => appendTurn(project, {
         role: "assistant",
-        content: "¡Hola! Contame qué tenés en mente. Vamos definiendo la idea juntos. Cuando tengamos una base clara, habilitaré el botón para armar una primera versión; podemos seguir hablando todo lo que necesites.",
+        content: "¡Hola! ¿Qué tenés en mente?",
       }));
       setPrompt("");
       setPromptError(null);
@@ -2012,7 +2012,7 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
       if (result.blueprint.appKind === "prototype") {
         void startGeneratedProjectJobForProject(
           projectId,
-          content,
+          [input.designBrief, content].filter(Boolean).join("\n\n").slice(0, MAX_PROMPT_LENGTH),
           result.blueprint,
           [...history, userTurn],
         );

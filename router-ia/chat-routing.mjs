@@ -1,3 +1,9 @@
+import {
+  recordProviderFailure,
+  recordProviderSuccess,
+  sortByConservation,
+} from "./conservation-policy.mjs";
+
 function hasImageContent(messages) {
   return messages.some((message) => {
     if (!Array.isArray(message?.content)) return false;
@@ -8,15 +14,11 @@ function hasImageContent(messages) {
   });
 }
 
-function sortByPriority(providers) {
-  return [...providers].sort(
-    (a, b) => (Number(b.priority) || 0) - (Number(a.priority) || 0),
-  );
-}
-
 function supportsCapability(provider, capability) {
+  const verification = provider?.modelMetadata?.capabilityVerification?.checks?.[capability]?.status;
   return (
     provider?.active === true &&
+    !["unsupported", "blocked", "retired"].includes(verification) &&
     Array.isArray(provider.capabilities) &&
     provider.capabilities.includes(capability) &&
     typeof provider.model === "string" &&
@@ -34,16 +36,23 @@ export function getChatCapability(messages) {
 
 export function getChatCandidates(providers, { messages, requestedModel }) {
   const capability = getChatCapability(messages);
-  const eligible = sortByPriority(
-    providers.filter((provider) => supportsCapability(provider, capability)),
-  );
+  const eligible = providers.filter((provider) => supportsCapability(provider, capability));
 
   if (requestedModel && requestedModel !== "router-ia-auto") {
     const explicit = eligible.find((provider) => provider.model === requestedModel);
     return { capability, candidates: explicit ? [explicit] : [] };
   }
 
-  return { capability, candidates: eligible };
+  return { capability, candidates: sortByConservation(eligible, capability) };
+}
+
+function classifyFailure(responseStatus) {
+  if (responseStatus === 429) return { transient: true, kind: "quota", status: 429, code: "provider_quota_exceeded" };
+  if (responseStatus === 402) return { transient: true, kind: "payment", status: 402, code: "provider_quota_exceeded" };
+  if (responseStatus === 408) return { transient: true, kind: "timeout", status: 504, code: "provider_timeout" };
+  if (responseStatus >= 500) return { transient: true, kind: "server", status: 502, code: "provider_error" };
+  if (responseStatus === 401 || responseStatus === 403) return { transient: true, kind: "rejected", status: 502, code: "provider_request_rejected" };
+  return { transient: false, kind: null, status: responseStatus, code: "provider_request_rejected" };
 }
 
 export async function requestChatWithFallback({
@@ -91,32 +100,28 @@ export async function requestChatWithFallback({
         },
       );
     } catch (error) {
+      const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
+      recordProviderFailure(provider, timeout ? "timeout" : "unreachable");
       lastFailure = {
-        status: error?.name === "TimeoutError" || error?.name === "AbortError" ? 504 : 502,
-        code:
-          error?.name === "TimeoutError" || error?.name === "AbortError"
-            ? "provider_timeout"
-            : "provider_unreachable",
+        status: timeout ? 504 : 502,
+        code: timeout ? "provider_timeout" : "provider_unreachable",
       };
       if (requestedModel && requestedModel !== "router-ia-auto") break;
       continue;
     }
 
     if (!response.ok) {
+      const failure = classifyFailure(response.status);
       await response.body?.cancel().catch(() => {});
-      lastFailure = {
-        status: response.status === 429 || response.status === 402 ? response.status : 502,
-        code:
-          response.status === 429 || response.status === 402
-            ? "provider_quota_exceeded"
-            : response.status === 401 || response.status === 403
-              ? "provider_request_rejected"
-              : "provider_error",
-      };
+      if (failure.kind) recordProviderFailure(provider, failure.kind);
+      lastFailure = { status: failure.status, code: failure.code };
+
       if (requestedModel && requestedModel !== "router-ia-auto") break;
+      if (!failure.transient) break;
       continue;
     }
 
+    recordProviderSuccess(provider);
     return { ok: true, response, provider, capability };
   }
 

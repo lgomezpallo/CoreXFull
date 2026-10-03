@@ -1,4 +1,6 @@
 import app from "./app";
+import { getChatProviderConfig } from "./lib/ai-provider";
+import { runPrismaAgent } from "./lib/prisma-agent";
 import { corexListTree, corexToolStatus } from "./lib/corex-tools";
 import { logger } from "./lib/logger";
 import { listImportantMemories } from "./lib/prisma-memory";
@@ -61,6 +63,39 @@ async function runOperationalSelfTest() {
   }
 }
 
+async function runAgentSmokeTest() {
+  if (process.env.PRISMA_STARTUP_AGENT_SMOKE?.trim() !== "1") return;
+
+  try {
+    const provider = getChatProviderConfig();
+    const response = await runPrismaAgent({
+      provider,
+      mode: "chat",
+      messages: [
+        {
+          role: "user",
+          content:
+            "Prueba operativa interna. Antes de responder, usa corex_status y corex_list_tree sobre corex con profundidad 0. Luego responde únicamente con una frase breve indicando repositorio, rama, si pudiste leer CoreX y si la escritura está habilitada. No prepares ni apliques cambios.",
+        },
+      ],
+    });
+    logger.info(
+      { prismaAgentSmoke: { ok: true, response: response.slice(0, 800) } },
+      "Prisma agent smoke test passed",
+    );
+  } catch (error) {
+    logger.error(
+      {
+        prismaAgentSmoke: {
+          ok: false,
+          error: error instanceof Error ? error.message.slice(0, 800) : "unknown",
+        },
+      },
+      "Prisma agent smoke test failed",
+    );
+  }
+}
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -69,4 +104,5 @@ app.listen(port, (err) => {
 
   logger.info({ port }, "Server listening");
   void runOperationalSelfTest();
+  void runAgentSmokeTest();
 });

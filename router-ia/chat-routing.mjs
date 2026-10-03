@@ -55,6 +55,16 @@ function classifyFailure(responseStatus) {
   return { transient: false, kind: null, status: responseStatus, code: "provider_request_rejected" };
 }
 
+function shouldTryNextProvider({ capability, failure, responseStatus }) {
+  if (failure.transient) return true;
+  if (capability !== "vision") return false;
+
+  // Vision providers are not fully payload-compatible with each other. A 4xx here
+  // commonly means that this particular model rejected the image/message shape,
+  // not that the user's request is invalid for every vision model.
+  return [400, 404, 405, 415, 422].includes(responseStatus);
+}
+
 export async function requestChatWithFallback({
   providers,
   messages,
@@ -111,13 +121,14 @@ export async function requestChatWithFallback({
     }
 
     if (!response.ok) {
-      const failure = classifyFailure(response.status);
+      const responseStatus = response.status;
+      const failure = classifyFailure(responseStatus);
       await response.body?.cancel().catch(() => {});
       if (failure.kind) recordProviderFailure(provider, failure.kind);
       lastFailure = { status: failure.status, code: failure.code };
 
       if (requestedModel && requestedModel !== "router-ia-auto") break;
-      if (!failure.transient) break;
+      if (!shouldTryNextProvider({ capability, failure, responseStatus })) break;
       continue;
     }
 

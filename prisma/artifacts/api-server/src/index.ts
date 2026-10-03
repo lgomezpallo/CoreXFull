@@ -1,7 +1,8 @@
 import app from "./app";
 import { getChatProviderConfig } from "./lib/ai-provider";
 import { runPrismaAgent } from "./lib/prisma-agent";
-import { corexListTree, corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
+import { corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
+import { corexListTree } from "./lib/corex-ssh-read";
 import { logger } from "./lib/logger";
 import { listImportantMemories } from "./lib/prisma-memory";
 import { runPrismaWriteSmoke } from "./lib/prisma-write-smoke";
@@ -47,6 +48,7 @@ async function runOperationalSelfTest() {
       ok: true,
       ...corexToolStatus(),
       entriesRead: tree.entries.length,
+      readTransport: "ssh",
     };
   } catch (error) {
     result.corex = {

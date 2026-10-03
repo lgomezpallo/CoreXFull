@@ -768,7 +768,8 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
   }, [projectCollection, previewMode, user?.id]);
 
   useEffect(() => {
-    messageEndRef.current?.scrollIntoView({ behavior: "smooth", block: "end" });
+    const chat = messageEndRef.current?.closest(".builder-chat-scroll");
+    chat?.scrollTo({ top: chat.scrollHeight, behavior: "smooth" });
   }, [activeProject.id, activeProject.messages, isGenerating]);
 
   const setProjectCollectionForProject = useCallback((
@@ -2347,7 +2348,7 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
             />
           ) : (
           <>
-          <section className="builder-conversation-panel" aria-label="Conversación para crear tu app">
+          <section className={`builder-conversation-panel ${activeProject.messages.length ? "has-conversation" : ""}`} aria-label="Conversación para crear tu app">
             <header className="builder-conversation-header">
               <span className="builder-conversation-kicker"><span /> ETAPA 2 · DISEÑO</span>
               <h1>Hagamos realidad tu idea</h1>
@@ -2395,32 +2396,6 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
                   {activeProject.messages.map((turn, index) => (
                     <ConversationMessage key={`${turn.role}-${index}`} turn={turn} index={index} />
                   ))}
-                  {activeProject.taskPlan.length > 0 && (
-                    <section className="builder-task-plan" aria-label="Tareas que generaron la vista previa">
-                      <div className="builder-task-plan-heading">
-                        <Check size={14} />
-                        <strong>Vista previa dividida en {activeProject.taskPlan.length} tareas</strong>
-                      </div>
-                      <ol>
-                        {activeProject.taskPlan.map((task) => (
-                          <li key={task.id}>
-                            <span>{task.title}</span>
-                            <small>
-                              Router IA · {routerTaskTypeLabels[task.taskType]}
-                            </small>
-                          </li>
-                        ))}
-                      </ol>
-                    </section>
-                  )}
-                  <ExpansionProposalCard
-                    proposal={activeProject.expansionProposal}
-                    decision={activeProject.expansionDecision}
-                    approvedModuleId={activeProject.approvedModuleId}
-                    busy={isGenerating || isActivatingModule}
-                    onActivate={activateExpansionModule}
-                    onKeepPrototype={keepPrototype}
-                  />
                   {isGenerating && (
                     <div className="builder-generating" role="status">
                       <span className="builder-message-avatar"><Sparkles size={14} /></span>
@@ -2432,10 +2407,8 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
               )}
             </div>
 
-            <section className="builder-task-plan" aria-label="Disponibilidad de la primera versión">
-              <p>{activeProject.designConversation?.readyToBuild
-                ? activeProject.blueprint ? "Ya podemos probar los cambios que conversamos." : "Ya tenemos una base para una primera versión."
-                : "Sigamos definiendo la idea. Podés conversar todo lo que necesites."}</p>
+            <section className="builder-build-toolbar" aria-label="Disponibilidad de la primera versión">
+              <span>{activeProject.designConversation?.readyToBuild ? "Disponible cuando quieras" : "Estamos definiendo la idea"}</span>
               <div className="builder-example-list">
                 <button type="button" disabled={isGenerating || isActivatingModule || !activeProject.designConversation?.readyToBuild}
                   data-testid="button-build-discussed-app"
@@ -2497,6 +2470,7 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
             </form>
           </section>
 
+          <div className="builder-results">
           {showGeneratedProjectPanel ? (
             <GeneratedProjectPanel
               stage={activeGeneratedJob?.stage ?? (savedGeneratedProject?.status === "ready" ? "ready" : "error")}
@@ -2546,6 +2520,38 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
           ) : (
             <PreviewPanel blueprint={activeProject.blueprint} appNamespace={activeProject.id} />
           )}
+          {(activeProject.taskPlan.length > 0 || activeProject.expansionProposal?.status !== "not-needed" && activeProject.expansionProposal) && (
+            <details className="builder-preview-details">
+              <summary>Información y opciones de la vista previa</summary>
+                  {activeProject.taskPlan.length > 0 && (
+                    <section className="builder-task-plan" aria-label="Tareas que generaron la vista previa">
+                      <div className="builder-task-plan-heading">
+                        <Check size={14} />
+                        <strong>Vista previa dividida en {activeProject.taskPlan.length} tareas</strong>
+                      </div>
+                      <ol>
+                        {activeProject.taskPlan.map((task) => (
+                          <li key={task.id}>
+                            <span>{task.title}</span>
+                            <small>
+                              Router IA · {routerTaskTypeLabels[task.taskType]}
+                            </small>
+                          </li>
+                        ))}
+                      </ol>
+                    </section>
+                  )}
+                  <ExpansionProposalCard
+                    proposal={activeProject.expansionProposal}
+                    decision={activeProject.expansionDecision}
+                    approvedModuleId={activeProject.approvedModuleId}
+                    busy={isGenerating || isActivatingModule}
+                    onActivate={activateExpansionModule}
+                    onKeepPrototype={keepPrototype}
+                  />
+            </details>
+          )}
+          </div>
           </>
           )}
         </main>

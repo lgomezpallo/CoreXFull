@@ -1089,3 +1089,26 @@
   cursor: not-allowed;
   transform: none;
 }
+
+/* Keep the conversation separate from preview diagnostics and module choices. */
+.builder-results { min-width: 0; min-height: 0; display: flex; flex-direction: column; gap: 8px; }
+.builder-results > .builder-preview-panel { flex: 1; }
+.builder-preview-details { flex: 0 0 auto; border: 1px solid var(--builder-line); border-radius: 12px; background: #fff; }
+.builder-preview-details > summary { padding: 12px; color: #56655a; font-size: 11px; cursor: pointer; }
+.builder-preview-details[open] { max-height: 45dvh; overflow-y: auto; }
+.builder-preview-details .builder-expansion-card, .builder-preview-details .builder-task-plan { margin: 8px; width: auto; }
+.builder-build-toolbar { flex: 0 0 auto; display: flex; align-items: center; gap: 8px; padding: 6px 16px; }
+.builder-build-toolbar > span { color: #818c84; font-size: 10px; }
+.builder-build-toolbar .builder-example-list { width: auto; margin-left: auto; }
+.builder-build-toolbar button { white-space: nowrap; }
+.builder-chat-scroll.has-messages { min-height: 260px; }
+@media (max-width: 760px) {
+  .builder-conversation-panel { height: max(620px, calc(100dvh - 120px)); min-height: 620px; }
+  .builder-conversation-panel.has-conversation .builder-conversation-header { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; padding: 10px 13px; }
+  .builder-conversation-panel.has-conversation .builder-conversation-header h1,
+  .builder-conversation-panel.has-conversation .builder-conversation-header p { display: none; }
+  .builder-conversation-panel.has-conversation .builder-selected-sources { margin: 0 0 0 auto; }
+  .builder-build-toolbar { padding: 6px 10px; }
+  .builder-build-toolbar > span { max-width: 105px; font-size: 9px; }
+  .builder-results { flex: 0 0 auto; }
+}

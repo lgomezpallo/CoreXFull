@@ -1,7 +1,7 @@
 import app from "./app";
 import { getChatProviderConfig } from "./lib/ai-provider";
 import { runPrismaAgent } from "./lib/prisma-agent";
-import { corexListTree, corexToolStatus } from "./lib/corex-tools";
+import { corexListTree, corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
 import { logger } from "./lib/logger";
 import { listImportantMemories } from "./lib/prisma-memory";
 
@@ -23,6 +23,7 @@ async function runOperationalSelfTest() {
   const result: Record<string, unknown> = {
     memory: { ok: false },
     corex: { ok: false, ...corexToolStatus() },
+    writeSetup: { ok: false },
   };
 
   try {
@@ -54,9 +55,20 @@ async function runOperationalSelfTest() {
     };
   }
 
+  try {
+    const setup = await corexManagedWriteSetup();
+    result.writeSetup = { ok: true, ...setup };
+  } catch (error) {
+    result.writeSetup = {
+      ok: false,
+      error: error instanceof Error ? error.message.slice(0, 300) : "unknown",
+    };
+  }
+
   const memoryOk = Boolean((result.memory as Record<string, unknown>).ok);
   const corexOk = Boolean((result.corex as Record<string, unknown>).ok);
-  if (memoryOk && corexOk) {
+  const writeSetupOk = Boolean((result.writeSetup as Record<string, unknown>).ok);
+  if (memoryOk && corexOk && writeSetupOk) {
     logger.info({ prismaSelfTest: result }, "Prisma operational self-test passed");
   } else {
     logger.error({ prismaSelfTest: result }, "Prisma operational self-test failed");

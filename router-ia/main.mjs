@@ -4,6 +4,7 @@ import { createAdminExtraHandler } from "./admin-extra-routes.mjs";
 import { createCapabilitiesHandler } from "./capabilities-route.mjs";
 import { createSmartChatHandler } from "./chat-handler.mjs";
 import { createMultimodalHandler } from "./multimodal-routes.mjs";
+import { createCloudflareImageHandler } from "./cloudflare-image-routes.mjs";
 import { syncCloudflareCatalog } from "./cloudflare-sync.mjs";
 import { auditAllProviders } from "./provider-auditor.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
@@ -32,6 +33,7 @@ export function createRouterApp(overrides = {}) {
   const adminExtraHandler = createAdminExtraHandler();
   const capabilitiesHandler = createCapabilitiesHandler({ appToken, providerStore });
   const smartChatHandler = createSmartChatHandler({ appToken, providerStore, fetchImpl });
+  const cloudflareImageHandler = createCloudflareImageHandler({ appToken, providerStore, fetchImpl });
   const multimodalHandler = createMultimodalHandler({ appToken, providerStore, fetchImpl });
 
   server.on("request", async (request, response) => {
@@ -40,6 +42,7 @@ export function createRouterApp(overrides = {}) {
       if (await adminExtraHandler(request, response, url)) return;
       if (await capabilitiesHandler(request, response, url)) return;
       if (await smartChatHandler(request, response, url)) return;
+      if (await cloudflareImageHandler(request, response, url)) return;
       if (await multimodalHandler(request, response, url)) return;
       return await baseHandler(request, response);
     } catch {

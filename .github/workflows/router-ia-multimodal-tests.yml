@@ -3,6 +3,7 @@ name: Router IA multimodal tests
 on:
   push:
     branches:
+      - main
       - router-multimodal
     paths:
       - "router-ia/**"

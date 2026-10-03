@@ -6,7 +6,7 @@ ENV NODE_ENV=production \
 WORKDIR /app
 COPY --chown=node:node package.json ./
 RUN npm install --omit=dev --no-audit --no-fund
-COPY --chown=node:node server.mjs main.mjs chat-handler.mjs chat-routing.mjs multimodal-routes.mjs capabilities-route.mjs admin-routes.mjs admin-passkey-store.mjs provider-adapter.mjs provider-store.mjs provider-capabilities.mjs ./
+COPY --chown=node:node server.mjs main.mjs chat-handler.mjs chat-routing.mjs multimodal-routes.mjs capabilities-route.mjs admin-extra-routes.mjs admin-routes.mjs admin-passkey-store.mjs provider-adapter.mjs provider-store.mjs provider-capabilities.mjs ./
 COPY --chown=node:node admin ./admin
 COPY --chown=node:node supabase/migrations ./supabase/migrations
 

@@ -48,3 +48,17 @@ cd .. && node scripts/test-prisma-standalone.mjs
 ```
 
 La prueba de Prisma utiliza el servidor real de Router-IA con almacenamiento y proveedor simulados; no llama proveedores externos. Comprueba web, health, chat sin CoreX, truncación y errores del Router. Las credenciales y la inferencia en Render deben comprobarse después de conectar los servicios reales.
+
+## Instalar las apps
+
+Las tres interfaces tienen manifiesto PWA, íconos de instalación y service worker:
+
+- CoreX: https://corex-egbs.onrender.com/
+- Prisma: https://corexfull-prisma.onrender.com/
+- Router IA (panel): https://router-ia-standalone.onrender.com/admin/
+
+En Android, abrir el enlace en Chrome y elegir **Instalar app** o **Añadir a pantalla de inicio** desde el menú. En iPhone, abrirlo en Safari y usar **Compartir → Añadir a pantalla de inicio**.
+
+CoreX y Prisma consultan la versión publicada al abrirse; el service worker sólo guarda una pantalla de aviso sin conexión. No intercepta ni guarda APIs, sesiones ni conversaciones. La IA requiere internet. Router conserva su caché del panel público y excluye su API privada.
+
+Validación después de compilar ambas apps: `node scripts/test-pwa.mjs`.

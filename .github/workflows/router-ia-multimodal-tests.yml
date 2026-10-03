@@ -1,0 +1,32 @@
+name: Router IA multimodal tests
+
+on:
+  push:
+    branches:
+      - router-multimodal
+    paths:
+      - "router-ia/**"
+      - ".github/workflows/router-ia-multimodal-tests.yml"
+  pull_request:
+    paths:
+      - "router-ia/**"
+      - ".github/workflows/router-ia-multimodal-tests.yml"
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: router-ia
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: router-ia/package-lock.json
+      - run: npm ci
+      - run: npm test

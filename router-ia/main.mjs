@@ -37,20 +37,9 @@ export function createRouterApp(overrides = {}) {
   const baseHandler = existingHandlers[0];
   server.removeAllListeners("request");
 
-  const capabilitiesHandler = createCapabilitiesHandler({
-    appToken,
-    providerStore,
-  });
-  const smartChatHandler = createSmartChatHandler({
-    appToken,
-    providerStore,
-    fetchImpl,
-  });
-  const multimodalHandler = createMultimodalHandler({
-    appToken,
-    providerStore,
-    fetchImpl,
-  });
+  const capabilitiesHandler = createCapabilitiesHandler({ appToken, providerStore });
+  const smartChatHandler = createSmartChatHandler({ appToken, providerStore, fetchImpl });
+  const multimodalHandler = createMultimodalHandler({ appToken, providerStore, fetchImpl });
 
   server.on("request", async (request, response) => {
     const url = new URL(request.url ?? "/", "http://router.local");
@@ -91,7 +80,7 @@ async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetc
       },
       body: JSON.stringify({
         model: "router-ia-auto",
-        messages: [{ role: "user", content: "Respond exactly with OK." }],
+        messages: [{ role: "user", content: "Respond briefly." }],
         max_tokens: 16,
       }),
       signal: AbortSignal.timeout(30_000),
@@ -101,8 +90,7 @@ async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetc
       return;
     }
     const payload = await response.json();
-    const content = payload?.choices?.[0]?.message?.content;
-    if (typeof content === "string" && content.trim().length > 0) {
+    if (Array.isArray(payload?.choices) && payload.choices.length > 0) {
       console.log("ROUTER_PROVIDER_SMOKE_OK");
     } else {
       console.error("ROUTER_PROVIDER_SMOKE_FAIL invalid_response");

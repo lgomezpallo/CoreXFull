@@ -32,24 +32,38 @@ function statusFromResponse(response) {
   return "inconclusive";
 }
 
+function compactDiagnostic(value) {
+  if (value == null) return null;
+  let text = "";
+  if (typeof value === "string") text = value;
+  else if (typeof value === "object") {
+    const candidate = value?.error?.message ?? value?.message ?? value?.error?.code ?? value?.error ?? value;
+    try { text = typeof candidate === "string" ? candidate : JSON.stringify(candidate); } catch { text = String(candidate); }
+  } else text = String(value);
+  text = text.replace(/Bearer\s+[^\s]+/gi, "Bearer [redacted]").replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]").trim();
+  return text ? text.slice(0, 500) : null;
+}
+
 async function safeFetch(fetchImpl, url, options, timeout = 25000) {
   try {
     const response = await fetchImpl(url, { ...options, redirect: "error", signal: AbortSignal.timeout(timeout) });
     const status = statusFromResponse(response);
     const contentType = response.headers.get("content-type") || "";
     let body = null;
-    if (response.ok) {
-      if (/application\/json/i.test(contentType)) {
-        try { body = await response.json(); } catch { body = null; }
-      } else {
-        try { body = await response.arrayBuffer(); } catch { body = null; }
-      }
+    let diagnostic = null;
+    if (/application\/json/i.test(contentType)) {
+      try {
+        body = await response.json();
+        if (!response.ok) diagnostic = compactDiagnostic(body);
+      } catch { body = null; }
+    } else if (response.ok) {
+      try { body = await response.arrayBuffer(); } catch { body = null; }
     } else {
-      await response.body?.cancel().catch(() => {});
+      try { diagnostic = compactDiagnostic(await response.text()); } catch { diagnostic = null; }
     }
-    return { status, httpStatus: response.status, contentType, body };
+    return { status, httpStatus: response.status, contentType, body, diagnostic };
   } catch (error) {
-    return { status: "inconclusive", error: error?.name || "network_error" };
+    return { status: "inconclusive", error: error?.name || "network_error", diagnostic: compactDiagnostic(error?.message) };
   }
 }
 
@@ -88,7 +102,7 @@ async function probeImageGeneration(provider, fetchImpl) {
       headers: { authorization: `Bearer ${provider.apiKey}`, "content-type": "application/json" },
       body: JSON.stringify({ prompt: "A red circle on a white background" }),
     }, 45000);
-    if (result.status === "verified" && !cloudflareImageResultLooksValid(result)) return { ...result, status: "unsupported" };
+    if (result.status === "verified" && !cloudflareImageResultLooksValid(result)) return { ...result, status: "unsupported", diagnostic: "Successful response did not contain image output." };
     return result;
   }
   return safeFetch(fetchImpl, `${base}/images/generations`, {
@@ -153,56 +167,77 @@ async function probeTranscription(provider, fetchImpl) {
   }, 45000);
 }
 
-function applyProbeResult(capabilities, declared, capability, result) {
+function candidateCapabilities(provider) {
+  const declared = Array.isArray(provider.capabilities) ? provider.capabilities : [];
+  const previous = provider?.modelMetadata?.capabilityVerification?.candidates;
+  const candidates = new Set(Array.isArray(previous) ? previous : declared);
+  if (!likelyNonChat(provider.model)) candidates.add("chat");
+  if (likelyVision(provider.model)) candidates.add("vision");
+  if (likelyImage(provider.model)) candidates.add("image_generation");
+  if (likelyTranscription(provider.model)) candidates.add("transcription");
+  if (likelySpeech(provider.model)) candidates.add("speech");
+  return [...candidates];
+}
+
+function applyProbeResult(capabilities, candidates, capability, result) {
   if (result.status === "verified") capabilities.add(capability);
-  else if (result.status === "inconclusive" && declared.includes(capability)) capabilities.add(capability);
+  else if (result.status === "inconclusive" && candidates.includes(capability)) capabilities.add(capability);
 }
 
 export async function auditProviderCapabilities(provider, fetchImpl = globalThis.fetch) {
-  const declared = Array.isArray(provider.capabilities) ? provider.capabilities : [];
+  const candidates = candidateCapabilities(provider);
   const checks = {};
   const capabilities = new Set(
-    declared.filter((capability) => ["coding", "reasoning", "summarization", "document", "long_context", "fast", "image_editing"].includes(capability)),
+    candidates.filter((capability) => ["coding", "reasoning", "summarization", "document", "long_context", "fast", "image_editing"].includes(capability)),
   );
 
-  if (!likelyNonChat(provider.model) || declared.includes("chat")) {
+  if (candidates.includes("chat")) {
     checks.chat = await probeChat(provider, fetchImpl, false);
-    applyProbeResult(capabilities, declared, "chat", checks.chat);
+    applyProbeResult(capabilities, candidates, "chat", checks.chat);
   }
-  if (declared.includes("vision") || likelyVision(provider.model)) {
+  if (candidates.includes("vision")) {
     checks.vision = await probeChat(provider, fetchImpl, true);
-    applyProbeResult(capabilities, declared, "vision", checks.vision);
+    applyProbeResult(capabilities, candidates, "vision", checks.vision);
   }
-  if (declared.includes("image_generation") || likelyImage(provider.model)) {
+  if (candidates.includes("image_generation")) {
     checks.image_generation = await probeImageGeneration(provider, fetchImpl);
-    applyProbeResult(capabilities, declared, "image_generation", checks.image_generation);
+    applyProbeResult(capabilities, candidates, "image_generation", checks.image_generation);
   }
-  if (declared.includes("transcription") || likelyTranscription(provider.model)) {
+  if (candidates.includes("transcription")) {
     checks.transcription = await probeTranscription(provider, fetchImpl);
-    applyProbeResult(capabilities, declared, "transcription", checks.transcription);
+    applyProbeResult(capabilities, candidates, "transcription", checks.transcription);
   }
-  if (declared.includes("speech") || likelySpeech(provider.model)) {
+  if (candidates.includes("speech")) {
     checks.speech = await probeSpeech(provider, fetchImpl);
-    applyProbeResult(capabilities, declared, "speech", checks.speech);
+    applyProbeResult(capabilities, candidates, "speech", checks.speech);
   }
 
   return {
     capabilities: [...capabilities],
     verification: {
       checkedAt: new Date().toISOString(),
-      source: "active_probe_v2",
+      source: "active_probe_v3",
+      candidates,
       checks: Object.fromEntries(Object.entries(checks).map(([key, value]) => [key, {
         status: value.status,
         ...(Number.isInteger(value.httpStatus) ? { httpStatus: value.httpStatus } : {}),
         ...(value.reason ? { reason: value.reason } : {}),
         ...(value.error ? { error: value.error } : {}),
+        ...(value.diagnostic ? { diagnostic: value.diagnostic } : {}),
       }])),
     },
   };
 }
 
-export async function auditAllProviders({ providerStore, fetchImpl = globalThis.fetch, concurrency = 2 }) {
-  const providers = await providerStore.getActiveProviders();
+function hasInconclusiveVerification(provider) {
+  const checks = provider?.modelMetadata?.capabilityVerification?.checks;
+  if (!checks || typeof checks !== "object") return true;
+  return Object.values(checks).some((check) => check?.status === "inconclusive");
+}
+
+export async function auditAllProviders({ providerStore, fetchImpl = globalThis.fetch, concurrency = 2, inconclusiveOnly = false }) {
+  const allProviders = await providerStore.getActiveProviders();
+  const providers = inconclusiveOnly ? allProviders.filter(hasInconclusiveVerification) : allProviders;
   let index = 0;
   let verifiedModels = 0;
   let inconclusiveModels = 0;

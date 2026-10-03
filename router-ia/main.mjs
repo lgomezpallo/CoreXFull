@@ -7,6 +7,7 @@ import { createMultimodalHandler } from "./multimodal-routes.mjs";
 import { createCloudflareImageHandler } from "./cloudflare-image-routes.mjs";
 import { syncCloudflareCatalog } from "./cloudflare-sync.mjs";
 import { auditAllProviders } from "./provider-auditor.mjs";
+import { auditVisionProviders } from "./vision-auditor.mjs";
 import { makeSilenceWav, makeSolidPng } from "./probe-assets.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
@@ -202,6 +203,22 @@ async function runStartupCloudflareTranscriptionSmoke({ port, appToken, fetchImp
   }
 }
 
+async function runStartupVisionAudit() {
+  if (process.env.ROUTER_PROVIDER_VISION_AUDIT !== "1") return;
+  const providerStore = createProviderStoreFromEnvironment();
+  if (!providerStore) {
+    console.error("ROUTER_VISION_AUDIT_FAIL provider_store_unavailable");
+    return;
+  }
+  try {
+    console.log("ROUTER_VISION_AUDIT_START");
+    const result = await auditVisionProviders({ providerStore, concurrency: 2 });
+    console.log(`ROUTER_VISION_AUDIT_OK total=${result.total} verified=${result.verified} unsupported=${result.unsupported} blocked=${result.blocked} retired=${result.retired} inconclusive=${result.inconclusive}`);
+  } catch (error) {
+    console.error(`ROUTER_VISION_AUDIT_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
 async function runStartupCapabilityAudit() {
   if (process.env.ROUTER_PROVIDER_CAPABILITY_AUDIT !== "1") return;
   const providerStore = createProviderStoreFromEnvironment();
@@ -257,6 +274,7 @@ if (isMain) {
         void runStartupCloudflareSpeechSmoke({ port, appToken });
         void runStartupCloudflareTranscriptionSmoke({ port, appToken });
         void runStartupCloudflareSync();
+        void runStartupVisionAudit();
         void runStartupCapabilityAudit();
       });
       const shutdown = () => {

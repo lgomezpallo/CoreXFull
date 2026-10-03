@@ -89,6 +89,15 @@ async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetc
   }
 }
 
+function sanitizeDiagnostic(value) {
+  return String(value ?? "")
+    .replace(/Bearer\s+[^\s]+/gi, "Bearer [redacted]")
+    .replace(/[A-Za-z0-9_-]{32,}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 240);
+}
+
 async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis.fetch }) {
   if (process.env.ROUTER_CLOUDFLARE_IMAGE_SMOKE !== "1") return;
   try {
@@ -102,7 +111,12 @@ async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis
       signal: AbortSignal.timeout(100_000),
     });
     if (!response.ok) {
-      console.error(`ROUTER_IMAGE_SMOKE_FAIL status=${response.status}`);
+      let diagnostic = "";
+      try {
+        const payload = await response.json();
+        diagnostic = sanitizeDiagnostic(payload?.error?.message ?? payload?.error?.code);
+      } catch {}
+      console.error(`ROUTER_IMAGE_SMOKE_FAIL status=${response.status}${diagnostic ? ` detail=${diagnostic}` : ""}`);
       return;
     }
     const payload = await response.json();

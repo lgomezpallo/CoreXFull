@@ -1,5 +1,6 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
+import { createCapabilitiesHandler } from "./capabilities-route.mjs";
 import { createMultimodalHandler } from "./multimodal-routes.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
@@ -35,6 +36,10 @@ export function createRouterApp(overrides = {}) {
   const baseHandler = existingHandlers[0];
   server.removeAllListeners("request");
 
+  const capabilitiesHandler = createCapabilitiesHandler({
+    appToken,
+    providerStore,
+  });
   const multimodalHandler = createMultimodalHandler({
     appToken,
     providerStore,
@@ -44,6 +49,7 @@ export function createRouterApp(overrides = {}) {
   server.on("request", async (request, response) => {
     const url = new URL(request.url ?? "/", "http://router.local");
     try {
+      if (await capabilitiesHandler(request, response, url)) return;
       if (await multimodalHandler(request, response, url)) return;
       return await baseHandler(request, response);
     } catch {

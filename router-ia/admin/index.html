@@ -18,6 +18,7 @@
     <link rel="apple-touch-icon" href="/admin/icons/apple-touch-icon.png" />
     <link rel="stylesheet" href="/admin/admin.css" />
     <script src="/admin/admin.js" defer></script>
+    <script src="/admin/provider-form.js" defer></script>
   </head>
   <body>
     <main class="page-shell">
@@ -131,12 +132,9 @@
               <span class="step-badge">01</span>
             </div>
             <p class="panel-copy">
-              Ingresá el nombre del proveedor, su URL base y la API key. Router IA
-              consulta el catálogo y agrega automáticamente modelos con precios de uso
-              publicados en cero. Para Groq, también contempla los modelos
-              incluidos en los límites de su plan Free. Para NVIDIA NIM, incluye
-              los modelos del API Catalog para prototipos sujetos a cuotas. La clave
-              se cifra al guardarse.
+              Elegí el proveedor e ingresá su API key. Para proveedores conocidos,
+              Router IA completa la URL automáticamente y consulta el catálogo. Solo
+              en “Personalizado” se pide una URL manual. La clave se cifra al guardarse.
             </p>
 
             <form id="provider-form">
@@ -160,7 +158,7 @@
                   required
                 />
                 <p class="field-hint">
-                  Compatible con el catálogo /models. No incluyas /models ni /chat/completions.
+                  Solo se usa para proveedores personalizados.
                 </p>
               </div>
 
@@ -188,13 +186,8 @@
             <div class="cost-note">
               <span class="cost-icon" aria-hidden="true">₀</span>
               <span>
-                <strong>Solo se ejecutan modelos elegibles.</strong> Se requiere una cuota Free
-                verificada, acceso de prototipado de NVIDIA o todos los precios publicados en
-                cero. Cada solicitud se envía una sola vez al proveedor guardado; al alcanzar
-                un límite no hay reintentos ni alternativas. Consultar GET /models depende de
-                las condiciones del proveedor.
-                <a href="https://console.groq.com/docs/rate-limits" target="_blank" rel="noreferrer">Ver límites oficiales de Groq</a>.
-                <a href="https://docs.api.nvidia.com/nim/docs/product" target="_blank" rel="noreferrer">Ver acceso oficial de NVIDIA NIM</a>.
+                <strong>Solo se ejecutan modelos elegibles.</strong> El Router prioriza
+                acceso gratuito o de prototipado verificado según el proveedor.
               </span>
             </div>
           </section>

@@ -4,6 +4,7 @@ import { runPrismaAgent } from "./lib/prisma-agent";
 import { corexListTree, corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
 import { logger } from "./lib/logger";
 import { listImportantMemories } from "./lib/prisma-memory";
+import { runPrismaWriteSmoke } from "./lib/prisma-write-smoke";
 
 const rawPort = process.env["PORT"];
 
@@ -108,6 +109,24 @@ async function runAgentSmokeTest() {
   }
 }
 
+async function runWriteSmokeTest() {
+  if (process.env.PRISMA_STARTUP_WRITE_SMOKE?.trim() !== "1") return;
+  try {
+    const result = await runPrismaWriteSmoke();
+    logger.info({ prismaWriteSmoke: result }, "Prisma write smoke test passed");
+  } catch (error) {
+    logger.error(
+      {
+        prismaWriteSmoke: {
+          ok: false,
+          error: error instanceof Error ? error.message.slice(0, 1000) : "unknown",
+        },
+      },
+      "Prisma write smoke test failed",
+    );
+  }
+}
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -117,4 +136,5 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   void runOperationalSelfTest();
   void runAgentSmokeTest();
+  void runWriteSmokeTest();
 });

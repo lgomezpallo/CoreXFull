@@ -30,3 +30,4 @@ jobs:
           cache-dependency-path: router-ia/package-lock.json
       - run: npm ci
       - run: npm test
+      - run: docker build -t router-ia-multimodal-test .

@@ -20,22 +20,23 @@ function getApiOrigin() {
 export async function streamAiReply(
   messages: ChatPayloadMessage[],
   mode: Extract<ChatMode, 'chat' | 'document'>,
+  conversationId: string,
   onText: (chunk: string) => void,
 ) {
-  const response = await fetch(`${getApiOrigin()}/api/ai/chat`, {
+  const response = await fetch(`${getApiOrigin()}/api/prisma/chat`, {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ messages, mode }),
+    body: JSON.stringify({ messages, mode, conversationId }),
   });
 
   if (!response.ok) {
     const result = (await response.json().catch(() => null)) as
       | { error?: string }
       | null;
-    throw new Error(result?.error ?? 'No se pudo conectar con el asistente.');
+    throw new Error(result?.error ?? 'No se pudo conectar con Prisma.');
   }
 
   const reader = response.body?.getReader();
@@ -98,7 +99,7 @@ export async function streamAiReply(
   }
 
   if (!fullText.trim()) {
-    throw new Error('El asistente no devolvió contenido. Inténtalo otra vez.');
+    throw new Error('Prisma no devolvió contenido. Inténtalo otra vez.');
   }
   return fullText;
 }

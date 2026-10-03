@@ -106,7 +106,7 @@ async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis
       headers: { authorization: `Bearer ${appToken}`, "content-type": "application/json" },
       body: JSON.stringify({
         model: "@cf/black-forest-labs/flux-1-schnell",
-        prompt: "A small red circle centered on a plain white background",
+        prompt: "A peaceful landscape of green hills under a clear blue sky",
       }),
       signal: AbortSignal.timeout(100_000),
     });

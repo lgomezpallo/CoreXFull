@@ -3,10 +3,12 @@ import {
   AiProviderConfigurationError,
   getChatProviderConfig,
 } from "../lib/ai-provider";
+import { corexToolStatus } from "../lib/corex-tools";
 import { logger } from "../lib/logger";
 import { runPrismaAgent } from "../lib/prisma-agent";
 import {
   ensurePrismaMemory,
+  listImportantMemories,
   recordConversationTurn,
 } from "../lib/prisma-memory";
 
@@ -37,6 +39,29 @@ function parseRequest(value: unknown): {
     conversationId: body.conversationId.trim(),
   };
 }
+
+router.get("/prisma/status", async (_req, res) => {
+  try {
+    const memories = await listImportantMemories(["prisma", "corex"], 8);
+    res.json({
+      ok: true,
+      memory: {
+        available: true,
+        entriesLoaded: memories.length,
+        scopes: [...new Set(memories.map((item) => item.scope))],
+      },
+      corex: corexToolStatus(),
+      changeMode: "prepare-and-approve",
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Prisma status check failed");
+    res.status(503).json({
+      ok: false,
+      memory: { available: false },
+      corex: corexToolStatus(),
+    });
+  }
+});
 
 router.post("/prisma/chat", async (req, res) => {
   const input = parseRequest(req.body);

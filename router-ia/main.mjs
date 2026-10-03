@@ -4,6 +4,7 @@ import { createAdminExtraHandler } from "./admin-extra-routes.mjs";
 import { createCapabilitiesHandler } from "./capabilities-route.mjs";
 import { createSmartChatHandler } from "./chat-handler.mjs";
 import { createMultimodalHandler } from "./multimodal-routes.mjs";
+import { auditAllProviders } from "./provider-auditor.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
 
@@ -84,6 +85,22 @@ async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetc
   }
 }
 
+async function runStartupCapabilityAudit() {
+  if (process.env.ROUTER_PROVIDER_CAPABILITY_AUDIT !== "1") return;
+  const providerStore = createProviderStoreFromEnvironment();
+  if (!providerStore) {
+    console.error("ROUTER_CAPABILITY_AUDIT_FAIL provider_store_unavailable");
+    return;
+  }
+  try {
+    console.log("ROUTER_CAPABILITY_AUDIT_START");
+    const result = await auditAllProviders({ providerStore, concurrency: 2 });
+    console.log(`ROUTER_CAPABILITY_AUDIT_OK total=${result.total} verified=${result.verifiedModels} inconclusive=${result.inconclusiveModels}`);
+  } catch (error) {
+    console.error(`ROUTER_CAPABILITY_AUDIT_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 
 if (isMain) {
@@ -101,6 +118,7 @@ if (isMain) {
       server.listen(port, "0.0.0.0", () => {
         console.log(`Router IA listening on port ${port}.`);
         void runStartupSmokeTest({ port, appToken });
+        void runStartupCapabilityAudit();
       });
       const shutdown = () => {
         server.close(() => process.exit(0));

@@ -194,6 +194,34 @@ export function createSupabaseProviderStore({
       return rows.map(toPublicProvider);
     },
 
+    async updateProviderVerification(id, audit) {
+      const currentRows = await request(
+        `router_ia_providers?select=model_metadata&id=eq.${encodeURIComponent(id)}&limit=1`,
+      );
+      const currentMetadata =
+        Array.isArray(currentRows) && currentRows[0]?.model_metadata &&
+        typeof currentRows[0].model_metadata === "object" && !Array.isArray(currentRows[0].model_metadata)
+          ? currentRows[0].model_metadata
+          : {};
+      const rows = await request(
+        `router_ia_providers?id=eq.${encodeURIComponent(id)}&select=${SAFE_PROVIDER_COLUMNS}`,
+        {
+          method: "PATCH",
+          body: {
+            capabilities: Array.isArray(audit?.capabilities) ? audit.capabilities : [],
+            model_metadata: {
+              ...currentMetadata,
+              capabilityVerification: audit?.verification ?? null,
+            },
+          },
+          prefer: "return=representation",
+        },
+      );
+      const row = Array.isArray(rows) ? rows[0] : null;
+      if (!row?.id) throw new Error("Supabase did not return the audited provider.");
+      return toPublicProvider(row);
+    },
+
     async activateProvider(id) {
       await request("rpc/router_ia_activate_provider", {
         method: "POST",

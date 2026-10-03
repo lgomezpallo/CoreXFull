@@ -1,4 +1,3 @@
-import { Ionicons } from '@expo/vector-icons';
 import { Image, Pressable, StyleSheet, Text, View } from 'react-native';
 import { useColors } from '@/hooks/useColors';
 import type { ConversationMessage } from '@/contexts/ConversationsContext';
@@ -32,13 +31,8 @@ export default function ChatMessage({
       testID={`message-${message.id}`}
     >
       {!isUser && !hasImage ? (
-        <View
-          style={[
-            styles.assistantMark,
-            { backgroundColor: colors.accent },
-          ]}
-        >
-          <Ionicons name="sparkles" size={14} color={colors.accentForeground} />
+        <View style={[styles.assistantMark, { backgroundColor: colors.accent }]}>
+          <Text style={[styles.assistantSymbol, { color: colors.accentForeground }]}>✦</Text>
         </View>
       ) : null}
       <View
@@ -58,12 +52,7 @@ export default function ChatMessage({
               accessibilityLabel={isUser ? 'Imagen adjunta' : 'Imagen generada por Prisma'}
             />
             {isUser && message.content ? (
-              <Text
-                style={[
-                  styles.imageCaption,
-                  { color: colors.primaryForeground },
-                ]}
-              >
+              <Text style={[styles.imageCaption, { color: colors.primaryForeground }]}>
                 {readableText(message.content)}
               </Text>
             ) : null}
@@ -98,19 +87,7 @@ export default function ChatMessage({
               },
             ]}
           >
-            <Ionicons
-              name="document-text-outline"
-              size={17}
-              color={colors.secondaryForeground}
-            />
-            <Text
-              style={[
-                styles.exportText,
-                { color: colors.secondaryForeground },
-              ]}
-            >
-              Exportar PDF
-            </Text>
+            <Text style={[styles.exportText, { color: colors.secondaryForeground }]}>Exportar PDF</Text>
           </Pressable>
         ) : null}
       </View>
@@ -139,6 +116,11 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
     marginTop: 2,
+  },
+  assistantSymbol: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 13,
+    lineHeight: 16,
   },
   content: {
     maxWidth: '84%',
@@ -174,7 +156,6 @@ const styles = StyleSheet.create({
     alignSelf: 'flex-start',
     flexDirection: 'row',
     alignItems: 'center',
-    gap: 8,
     paddingHorizontal: 13,
     paddingVertical: 10,
     borderRadius: 14,

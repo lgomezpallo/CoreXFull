@@ -77,7 +77,7 @@ guardadas no se podrán descifrar.
   seleccionado. Router IA no reintenta ni cambia a otro modelo o proveedor ante
   errores, límites o falta de cuota. Las solicitudes elegibles consumen las
   cuotas o créditos de prueba que aplique el proveedor.
-- Las respuestas se limitan a 1.024 tokens de salida y no se admite streaming ni
+- Las respuestas se limitan a 8.192 tokens de salida y no se admite streaming ni
   más de una respuesta por solicitud.
 - Podés mantener varios proveedores activos. Cada uno tiene capacidades
   declaradas y una prioridad entre 1 y 100; las rutas muestran prioridad mayor
@@ -147,7 +147,7 @@ const completion = await response.json();
 
 No expongas `ROUTER_IA_APP_TOKEN` en el navegador ni lo guardes en el repositorio.
 Las solicitudes son de backend a backend. Router IA no admite streaming, limita
-las respuestas a 1.024 tokens y no reintenta ni cambia de proveedor cuando una
+las respuestas a 8.192 tokens y no reintenta ni cambia de proveedor cuando una
 solicitud falla.
 
 ## Configuración en Render

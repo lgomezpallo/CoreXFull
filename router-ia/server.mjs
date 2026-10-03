@@ -15,7 +15,7 @@ import {
 const MAX_COMPLETION_BODY_BYTES = 1_048_576;
 const MAX_COMPLETION_RESPONSE_BYTES = 2_000_000;
 const DEFAULT_MAX_COMPLETION_TOKENS = 512;
-const MAX_COMPLETION_TOKENS = 1_024;
+const MAX_COMPLETION_TOKENS = 8_192;
 const GROQ_FREE_PLAN_METADATA = "groq_free_plan";
 const NVIDIA_COMPLETION_METADATA = "nvidia_api_catalog_prototyping";
 
@@ -412,6 +412,13 @@ export function createRouterServer(overrides = {}) {
       };
       for (const field of FORWARDED_COMPLETION_FIELDS) {
         if (Object.hasOwn(body, field)) upstreamBody[field] = body[field];
+      }
+      // Groq GPT-OSS uses the same output budget for reasoning and final JSON.
+      // Keep structured tasks concise so their usable response is not crowded out.
+      if (provider.baseUrl === "https://api.groq.com/openai/v1" &&
+          ["openai/gpt-oss-20b", "openai/gpt-oss-120b"].includes(provider.model) &&
+          body.response_format?.type === "json_object") {
+        upstreamBody.reasoning_effort = "low";
       }
 
       let upstream;

@@ -405,7 +405,7 @@ export async function generateBlueprintInTasks(input: BuilderGenerationInput) {
   const planContent = await createRouterCompletion(
     planningTaskType,
     buildPlannerMessages(input),
-    { maxTokens: 1_800, jsonMode: true },
+    { maxTokens: 3_072, jsonMode: true },
   );
   const plan = parsePlan(planContent);
 
@@ -425,7 +425,7 @@ export async function generateBlueprintInTasks(input: BuilderGenerationInput) {
     const content = await createRouterCompletion(
       sectionTaskType,
       buildSectionMessages(plannedSection, input, referenceSummary),
-      { maxTokens: 1_200, jsonMode: true },
+      { maxTokens: 2_048, jsonMode: true },
     );
     const items = parseItems(content, plannedSection.id);
 

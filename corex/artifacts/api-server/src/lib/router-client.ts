@@ -136,8 +136,11 @@ import type { RouterTaskType } from "@workspace/api-zod";
       }
 
       const choices = (payload as {
-        choices?: Array<{ message?: { content?: unknown } }>;
+        choices?: Array<{ finish_reason?: string; message?: { content?: unknown } }>;
       }).choices;
+      if (choices?.[0]?.finish_reason === "length") {
+        throw new Error("La respuesta de Router IA quedó cortada por el límite de tokens.");
+      }
       const content = choices?.[0]?.message?.content;
       if (typeof content !== "string") {
         throw new Error("Router IA no devolvió texto.");
@@ -241,6 +244,7 @@ import type { RouterTaskType } from "@workspace/api-zod";
             messages: requestMessages,
             max_tokens: options.maxTokens,
             stream: false,
+            ...(options.jsonMode ? { response_format: { type: "json_object" } } : {}),
           }),
           redirect: "error",
           signal: AbortSignal.timeout(COMPLETION_TIMEOUT_MS),

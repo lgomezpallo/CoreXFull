@@ -16,7 +16,7 @@ CoreX usa `ROUTER_IA_URL` (origen del Router) y `ROUTER_IA_TOKEN`.
 Prisma usa `AI_ROUTER_BASE_URL` (origen del Router seguido de `/api/v1`), `AI_ROUTER_API_KEY` (el mismo token de aplicación) y `AI_ROUTER_CHAT_MODEL=router-ia-auto`.
 Las claves de proveedores permanecen en Router-IA.
 
-Prisma realiza una petición JSON sin streaming al Router y convierte la respuesta a los eventos que ya espera su interfaz. El límite actual del Router es 1024 tokens. Si la respuesta llega truncada, Prisma informa el límite y no la marca como completa. `AI_ROUTER_STREAM=true` se reserva para un futuro Router compatible con streaming.
+Prisma realiza una petición JSON sin streaming al Router y convierte la respuesta a los eventos que ya espera su interfaz. El Router permite hasta 8192 tokens por solicitud; Prisma pide 1024 para el chat. Si la respuesta llega truncada, Prisma informa el límite y no la marca como completa. `AI_ROUTER_STREAM=true` se reserva para un futuro Router compatible con streaming.
 
 `pnpm build` en Prisma compila el API y exporta la app Expo para web. El API sirve esa web; no necesita Replit, Expo Go ni CoreX para abrirse en el navegador. La web usa su propio origen para `/api`, mientras que la app nativa sigue aceptando `EXPO_PUBLIC_DOMAIN`.
 

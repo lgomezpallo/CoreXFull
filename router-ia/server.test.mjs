@@ -261,7 +261,8 @@ test("completions call only saved models with an approved free-access basis", as
         body: JSON.stringify({
           model: provider.model,
           messages: [{ role: "user", content: "Test prompt." }],
-          max_tokens: 5_000,
+          max_tokens: 50_000,
+          response_format: { type: "json_object" },
           temperature: 0.2,
           ignored_by_router: true,
         }),
@@ -283,7 +284,9 @@ test("completions call only saved models with an approved free-access basis", as
       assert.deepEqual(JSON.parse(calls[0].options.body), {
         model: provider.model,
         messages: [{ role: "user", content: "Test prompt." }],
-        max_tokens: 1_024,
+        max_tokens: 8_192,
+        response_format: { type: "json_object" },
+        ...(provider.id === "groq-free" ? { reasoning_effort: "low" } : {}),
         temperature: 0.2,
       });
     });

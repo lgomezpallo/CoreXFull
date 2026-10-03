@@ -1940,6 +1940,22 @@ function ConversationalBuilder({ onOpenPrisma }: { onOpenPrisma?: () => void }) 
     const previousBlueprint = activeProject.blueprint;
     const userTurn: AppBuilderTurn = { role: "user", content };
     setProjectCollectionForProject(projectId, (project) => appendTurn(project, userTurn));
+    if (/^(hola|buenas|buenos d[ií]as|buenas tardes|buenas noches)[\s!.¿?¡]*$/i.test(content)) {
+      setProjectCollectionForProject(projectId, (project) => appendTurn(project, {
+        role: "assistant",
+        content: "¡Hola! Contame qué app querés crear y para qué la usarías. Con eso puedo preparar la primera vista previa.",
+      }));
+      setPrompt("");
+      setPromptError(null);
+      speech.cancel();
+      speech.clearError();
+      setRequestErrors((current) => {
+        const next = { ...current };
+        delete next[projectId];
+        return next;
+      });
+      return;
+    }
     setPendingProjectIds((current) => new Set(current).add(projectId));
     setRequestErrors((current) => {
       const next = { ...current };

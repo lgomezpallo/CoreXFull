@@ -52,7 +52,7 @@ import assert from "node:assert/strict";
       });
     });
 
-    test("JSON mode adds an instruction rather than provider-specific request fields", async () => {
+    test("JSON mode requests a JSON object and includes a JSON instruction", async () => {
       process.env.ROUTER_URL = "https://router.example.test";
       process.env.ROUTER_APP_KEY = "local-test-app-key";
       let requestBody: Record<string, any> | undefined;
@@ -71,7 +71,7 @@ import assert from "node:assert/strict";
         { maxTokens: 200, jsonMode: true },
       );
 
-      assert.equal(requestBody?.response_format, undefined);
+      assert.deepEqual(requestBody?.response_format, { type: "json_object" });
       assert.equal(requestBody?.model, undefined);
       assert.equal(requestBody?.messages[0].role, "system");
       assert.match(requestBody?.messages[0].content, /objeto JSON válido/);
@@ -173,3 +173,12 @@ import assert from "node:assert/strict";
         /ROUTER_IA_URL debe ser HTTPS/,
       );
     });
+
+test("rejects truncated completions even when content contains valid-looking JSON", async () => {
+  process.env.ROUTER_IA_TOKEN = "server-test-token";
+  globalThis.fetch = (async (input) => {
+    if (String(input).endsWith("/api/v1/auth/check")) return authenticated();
+    return new Response(JSON.stringify({ choices: [{ finish_reason: "length", message: { content: '{"ok":true}' } }] }), { status: 200 });
+  }) as typeof fetch;
+  await assert.rejects(createRouterCompletion("reasoning", messages, { maxTokens: 3072, jsonMode: true }), /quedó cortada/);
+});

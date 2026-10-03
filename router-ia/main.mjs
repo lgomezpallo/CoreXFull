@@ -4,6 +4,7 @@ import { createAdminExtraHandler } from "./admin-extra-routes.mjs";
 import { createCapabilitiesHandler } from "./capabilities-route.mjs";
 import { createSmartChatHandler } from "./chat-handler.mjs";
 import { createMultimodalHandler } from "./multimodal-routes.mjs";
+import { syncCloudflareCatalog } from "./cloudflare-sync.mjs";
 import { auditAllProviders } from "./provider-auditor.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
@@ -102,6 +103,22 @@ async function runStartupCapabilityAudit() {
   }
 }
 
+async function runStartupCloudflareSync() {
+  if (process.env.ROUTER_CLOUDFLARE_CATALOG_SYNC !== "1") return;
+  const providerStore = createProviderStoreFromEnvironment();
+  if (!providerStore) {
+    console.error("ROUTER_CLOUDFLARE_SYNC_FAIL provider_store_unavailable");
+    return;
+  }
+  try {
+    console.log("ROUTER_CLOUDFLARE_SYNC_START");
+    const result = await syncCloudflareCatalog({ providerStore });
+    console.log(`ROUTER_CLOUDFLARE_SYNC_OK found=${result.found} eligible=${result.eligible} classified=${result.classified ?? 0} added=${result.added}`);
+  } catch (error) {
+    console.error(`ROUTER_CLOUDFLARE_SYNC_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
 const isMain = process.argv[1] && import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
 
 if (isMain) {
@@ -119,6 +136,7 @@ if (isMain) {
       server.listen(port, "0.0.0.0", () => {
         console.log(`Router IA listening on port ${port}.`);
         void runStartupSmokeTest({ port, appToken });
+        void runStartupCloudflareSync();
         void runStartupCapabilityAudit();
       });
       const shutdown = () => {

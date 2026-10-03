@@ -1,14 +1,21 @@
 import { Ionicons } from '@expo/vector-icons';
+import * as ImagePicker from 'expo-image-picker';
 import {
+  Image,
   Pressable,
   StyleSheet,
   Text,
   TextInput,
   View,
 } from 'react-native';
-import type { RefObject } from 'react';
+import { useState, type RefObject } from 'react';
 import { useColors } from '@/hooks/useColors';
 import type { ChatMode } from '@/contexts/ConversationsContext';
+import type { PrismaImageAttachment } from '@/lib/ai';
+
+export interface SelectedPrismaImage extends PrismaImageAttachment {
+  uri: string;
+}
 
 interface ChatComposerProps {
   value: string;
@@ -18,6 +25,8 @@ interface ChatComposerProps {
   onSend: () => void;
   isBusy: boolean;
   inputRef: RefObject<TextInput | null>;
+  attachment: SelectedPrismaImage | null;
+  onAttachmentChange: (attachment: SelectedPrismaImage | null) => void;
 }
 
 const modes: Array<{
@@ -30,6 +39,14 @@ const modes: Array<{
   { id: 'document', label: 'Documento', icon: 'document-text-outline' },
 ];
 
+function normalizeMimeType(value?: string | null): PrismaImageAttachment['mimeType'] | null {
+  const mime = value?.toLowerCase();
+  if (mime === 'image/jpeg' || mime === 'image/jpg') return 'image/jpeg';
+  if (mime === 'image/png') return 'image/png';
+  if (mime === 'image/webp') return 'image/webp';
+  return null;
+}
+
 export default function ChatComposer({
   value,
   onChangeText,
@@ -38,14 +55,48 @@ export default function ChatComposer({
   onSend,
   isBusy,
   inputRef,
+  attachment,
+  onAttachmentChange,
 }: ChatComposerProps) {
   const colors = useColors();
+  const [attachmentError, setAttachmentError] = useState('');
   const placeholder =
     mode === 'image'
       ? 'Describe la imagen que imaginas…'
       : mode === 'document'
         ? '¿Qué documento necesitas?'
-        : 'Escribe tu mensaje…';
+        : attachment
+          ? '¿Qué querés saber de esta imagen?'
+          : 'Escribe tu mensaje…';
+  const canSend = !isBusy && (!!value.trim() || !!attachment);
+
+  async function pickImage() {
+    if (isBusy) return;
+    setAttachmentError('');
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      base64: true,
+      quality: 0.72,
+    });
+    if (result.canceled) return;
+    const asset = result.assets[0];
+    if (!asset?.base64 || !asset.uri) {
+      setAttachmentError('No se pudo leer esa imagen.');
+      return;
+    }
+    if (asset.base64.length > 6_500_000) {
+      setAttachmentError('La imagen es demasiado grande. Elegí una más liviana.');
+      return;
+    }
+    const mimeType = normalizeMimeType(asset.mimeType);
+    if (!mimeType) {
+      setAttachmentError('Prisma acepta imágenes JPG, PNG o WebP.');
+      return;
+    }
+    onModeChange('chat');
+    onAttachmentChange({ uri: asset.uri, data: asset.base64, mimeType });
+  }
 
   return (
     <View
@@ -67,7 +118,10 @@ export default function ChatComposer({
               accessibilityState={{ selected }}
               testID={`mode-${item.id}`}
               disabled={isBusy}
-              onPress={() => onModeChange(item.id)}
+              onPress={() => {
+                if (item.id === 'image' && attachment) onAttachmentChange(null);
+                onModeChange(item.id);
+              }}
               style={({ pressed }) => [
                 styles.modeButton,
                 {
@@ -98,12 +152,49 @@ export default function ChatComposer({
         })}
       </View>
 
+      {attachment ? (
+        <View style={styles.attachmentRow}>
+          <Image source={{ uri: attachment.uri }} style={styles.attachmentPreview} />
+          <View style={styles.attachmentMeta}>
+            <Text style={[styles.attachmentTitle, { color: colors.foreground }]}>Imagen adjunta</Text>
+            <Text style={[styles.attachmentHint, { color: colors.mutedForeground }]}>Prisma la analizará con visión</Text>
+          </View>
+          <Pressable
+            accessibilityRole="button"
+            accessibilityLabel="Quitar imagen"
+            onPress={() => onAttachmentChange(null)}
+            style={[styles.removeAttachment, { backgroundColor: colors.secondary }]}
+          >
+            <Ionicons name="close" size={17} color={colors.secondaryForeground} />
+          </Pressable>
+        </View>
+      ) : null}
+
+      {attachmentError ? (
+        <Text style={[styles.attachmentError, { color: colors.destructive }]}>{attachmentError}</Text>
+      ) : null}
+
       <View
         style={[
           styles.inputShell,
           { backgroundColor: colors.card, borderColor: colors.input },
         ]}
       >
+        <Pressable
+          accessibilityRole="button"
+          accessibilityLabel="Adjuntar imagen"
+          testID="attach-image"
+          disabled={isBusy || mode === 'image'}
+          onPress={() => void pickImage()}
+          style={({ pressed }) => [
+            styles.attachButton,
+            {
+              opacity: isBusy || mode === 'image' ? 0.35 : pressed ? 0.65 : 1,
+            },
+          ]}
+        >
+          <Ionicons name="attach" size={21} color={colors.mutedForeground} />
+        </Pressable>
         <TextInput
           ref={inputRef}
           value={value}
@@ -125,13 +216,12 @@ export default function ChatComposer({
           accessibilityRole="button"
           accessibilityLabel={isBusy ? 'Generando respuesta' : 'Enviar'}
           testID="send-message"
-          disabled={isBusy || !value.trim()}
+          disabled={!canSend}
           onPress={onSend}
           style={({ pressed }) => [
             styles.sendButton,
             {
-              backgroundColor:
-                isBusy || !value.trim() ? colors.muted : colors.primary,
+              backgroundColor: canSend ? colors.primary : colors.muted,
               opacity: pressed ? 0.8 : 1,
             },
           ]}
@@ -139,11 +229,7 @@ export default function ChatComposer({
           <Ionicons
             name={isBusy ? 'ellipsis-horizontal' : 'arrow-up'}
             size={20}
-            color={
-              isBusy || !value.trim()
-                ? colors.mutedForeground
-                : colors.primaryForeground
-            }
+            color={canSend ? colors.primaryForeground : colors.mutedForeground}
           />
         </Pressable>
       </View>
@@ -177,14 +263,55 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_500Medium',
     fontSize: 12,
   },
+  attachmentRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    marginBottom: 9,
+  },
+  attachmentPreview: {
+    width: 52,
+    height: 52,
+    borderRadius: 12,
+  },
+  attachmentMeta: {
+    flex: 1,
+  },
+  attachmentTitle: {
+    fontFamily: 'Inter_600SemiBold',
+    fontSize: 12,
+  },
+  attachmentHint: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 10,
+    marginTop: 2,
+  },
+  removeAttachment: {
+    width: 30,
+    height: 30,
+    borderRadius: 10,
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  attachmentError: {
+    fontFamily: 'Inter_500Medium',
+    fontSize: 11,
+    marginBottom: 8,
+  },
   inputShell: {
     minHeight: 54,
     flexDirection: 'row',
     alignItems: 'flex-end',
     borderWidth: 1,
     borderRadius: 20,
-    paddingHorizontal: 10,
+    paddingHorizontal: 8,
     paddingVertical: 7,
+  },
+  attachButton: {
+    width: 36,
+    height: 38,
+    alignItems: 'center',
+    justifyContent: 'center',
   },
   input: {
     flex: 1,

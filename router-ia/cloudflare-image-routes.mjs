@@ -155,6 +155,17 @@ async function runEdit(provider, prompt, image, fetchImpl) {
   return readUpstreamImage(upstream);
 }
 
+function sendUnavailable(response, capability, model) {
+  sendJson(response, 404, {
+    error: {
+      code: "model_unavailable",
+      message: model && model !== "router-ia-auto"
+        ? `The requested ${capability} model is not available.`
+        : `No active Cloudflare ${capability} model is available.`,
+    },
+  });
+}
+
 export function createCloudflareImageHandler({ appToken, providerStore, fetchImpl = globalThis.fetch }) {
   return async function handleCloudflareImage(request, response, url) {
     const generation = request.method === "POST" && url.pathname === "/api/v1/images/generations";
@@ -166,6 +177,11 @@ export function createCloudflareImageHandler({ appToken, providerStore, fetchImp
       return true;
     }
     try {
+      if (!providerStore || typeof providerStore.getActiveProviders !== "function") {
+        request.resume();
+        sendJson(response, 503, { error: { code: "provider_storage_unavailable", message: "Provider storage is unavailable." } });
+        return true;
+      }
       const providers = await providerStore.getActiveProviders();
       if (generation) {
         const body = await readJson(request);
@@ -173,20 +189,27 @@ export function createCloudflareImageHandler({ appToken, providerStore, fetchImp
         if (!prompt || prompt.length > 2048) throw Object.assign(new Error("Provide an image prompt."), { statusCode: 400 });
         const model = typeof body.model === "string" ? body.model.trim() : "router-ia-auto";
         const provider = selectProvider(providers, "image_generation", model);
-        if (!provider) return false;
+        if (!provider) {
+          sendUnavailable(response, "image generation", model);
+          return true;
+        }
         const image = await runGeneration(provider, prompt, body, fetchImpl);
         sendJson(response, 200, { created: Math.floor(Date.now() / 1000), data: [{ b64_json: image.base64 }], model: "router-ia-auto", router: { capability: "image_generation" } });
         return true;
       }
 
       const form = await readForm(request);
-      const prompt = typeof form.get("prompt") === "string" ? form.get("prompt").trim() : "";
+      const promptValue = form.get("prompt");
+      const prompt = typeof promptValue === "string" ? promptValue.trim() : "";
       const image = form.get("image");
       const modelValue = form.get("model");
       const model = typeof modelValue === "string" ? modelValue.trim() : "router-ia-auto";
       if (!prompt || !(image instanceof File)) throw Object.assign(new Error("Provide prompt and image."), { statusCode: 400 });
       const provider = selectProvider(providers, "image_editing", model);
-      if (!provider) return false;
+      if (!provider) {
+        sendUnavailable(response, "image editing", model);
+        return true;
+      }
       const output = await runEdit(provider, prompt, image, fetchImpl);
       sendJson(response, 200, { created: Math.floor(Date.now() / 1000), data: [{ b64_json: output.base64 }], model: "router-ia-auto", router: { capability: "image_editing" } });
       return true;

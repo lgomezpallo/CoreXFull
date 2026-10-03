@@ -27,8 +27,9 @@ function likelyNonChat(model) {
 
 function statusFromResponse(response) {
   if (response.ok) return "verified";
-  if ([401, 402, 403, 408, 409, 429].includes(response.status) || response.status >= 500) return "inconclusive";
-  return "unsupported";
+  if ([400, 401, 402, 403, 408, 409, 422, 429].includes(response.status) || response.status >= 500) return "inconclusive";
+  if ([404, 405, 415].includes(response.status)) return "unsupported";
+  return "inconclusive";
 }
 
 async function safeFetch(fetchImpl, url, options, timeout = 25000) {
@@ -100,20 +101,51 @@ async function probeImageGeneration(provider, fetchImpl) {
 async function probeSpeech(provider, fetchImpl) {
   const base = provider.baseUrl.replace(/\/+$/, "");
   if (isCloudflare(provider)) return { status: "inconclusive", reason: "model_specific_format" };
+  const arabic = /arabic-saudi/i.test(provider.model);
   return safeFetch(fetchImpl, `${base}/audio/speech`, {
     method: "POST",
     headers: { authorization: `Bearer ${provider.apiKey}`, "content-type": "application/json" },
-    body: JSON.stringify({ model: provider.model, input: "Hello", voice: "alloy", format: "wav" }),
+    body: JSON.stringify({
+      model: provider.model,
+      input: arabic ? "مرحبا" : "Hello",
+      voice: arabic ? "fahad" : "troy",
+      response_format: "wav",
+    }),
   }, 45000);
+}
+
+function makeSilenceWav() {
+  const sampleRate = 8000;
+  const samples = 2000;
+  const dataSize = samples * 2;
+  const buffer = new ArrayBuffer(44 + dataSize);
+  const view = new DataView(buffer);
+  const write = (offset, text) => {
+    for (let i = 0; i < text.length; i += 1) view.setUint8(offset + i, text.charCodeAt(i));
+  };
+  write(0, "RIFF");
+  view.setUint32(4, 36 + dataSize, true);
+  write(8, "WAVE");
+  write(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, sampleRate, true);
+  view.setUint32(28, sampleRate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  write(36, "data");
+  view.setUint32(40, dataSize, true);
+  return new Uint8Array(buffer);
 }
 
 async function probeTranscription(provider, fetchImpl) {
   const base = provider.baseUrl.replace(/\/+$/, "");
   if (isCloudflare(provider)) return { status: "inconclusive", reason: "model_specific_format" };
-  const wav = new Uint8Array([82,73,70,70,36,0,0,0,87,65,86,69,102,109,116,32,16,0,0,0,1,0,1,0,64,31,0,0,128,62,0,0,2,0,16,0,100,97,116,97,0,0,0,0]);
   const form = new FormData();
   form.set("model", provider.model);
-  form.set("file", new Blob([wav], { type: "audio/wav" }), "probe.wav");
+  form.set("response_format", "json");
+  form.set("file", new Blob([makeSilenceWav()], { type: "audio/wav" }), "probe.wav");
   return safeFetch(fetchImpl, `${base}/audio/transcriptions`, {
     method: "POST",
     headers: { authorization: `Bearer ${provider.apiKey}` },
@@ -158,7 +190,7 @@ export async function auditProviderCapabilities(provider, fetchImpl = globalThis
     capabilities: [...capabilities],
     verification: {
       checkedAt: new Date().toISOString(),
-      source: "active_probe_v1",
+      source: "active_probe_v2",
       checks: Object.fromEntries(Object.entries(checks).map(([key, value]) => [key, {
         status: value.status,
         ...(Number.isInteger(value.httpStatus) ? { httpStatus: value.httpStatus } : {}),

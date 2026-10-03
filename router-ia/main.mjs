@@ -7,6 +7,7 @@ import { createMultimodalHandler } from "./multimodal-routes.mjs";
 import { createCloudflareImageHandler } from "./cloudflare-image-routes.mjs";
 import { syncCloudflareCatalog } from "./cloudflare-sync.mjs";
 import { auditAllProviders } from "./provider-auditor.mjs";
+import { makeSolidPng } from "./probe-assets.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
 
@@ -70,11 +71,7 @@ async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetc
     const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/chat/completions`, {
       method: "POST",
       headers: { authorization: `Bearer ${appToken}`, "content-type": "application/json" },
-      body: JSON.stringify({
-        model: "router-ia-auto",
-        messages: [{ role: "user", content: "Respond briefly." }],
-        max_tokens: 16,
-      }),
+      body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "Respond briefly." }], max_tokens: 16 }),
       signal: AbortSignal.timeout(30_000),
     });
     if (!response.ok) {
@@ -98,6 +95,15 @@ function sanitizeDiagnostic(value) {
     .slice(0, 240);
 }
 
+async function readSmokeFailure(response) {
+  let diagnostic = "";
+  try {
+    const payload = await response.json();
+    diagnostic = sanitizeDiagnostic(payload?.error?.message ?? payload?.error?.code);
+  } catch {}
+  return diagnostic;
+}
+
 async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis.fetch }) {
   if (process.env.ROUTER_CLOUDFLARE_IMAGE_SMOKE !== "1") return;
   try {
@@ -111,11 +117,7 @@ async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis
       signal: AbortSignal.timeout(100_000),
     });
     if (!response.ok) {
-      let diagnostic = "";
-      try {
-        const payload = await response.json();
-        diagnostic = sanitizeDiagnostic(payload?.error?.message ?? payload?.error?.code);
-      } catch {}
+      const diagnostic = await readSmokeFailure(response);
       console.error(`ROUTER_IMAGE_SMOKE_FAIL status=${response.status}${diagnostic ? ` detail=${diagnostic}` : ""}`);
       return;
     }
@@ -125,6 +127,33 @@ async function runStartupImageSmokeTest({ port, appToken, fetchImpl = globalThis
     else console.error("ROUTER_IMAGE_SMOKE_FAIL invalid_response");
   } catch (error) {
     console.error(`ROUTER_IMAGE_SMOKE_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
+async function runStartupImageEditSmokeTest({ port, appToken, fetchImpl = globalThis.fetch }) {
+  if (process.env.ROUTER_CLOUDFLARE_IMAGE_EDIT_SMOKE !== "1") return;
+  try {
+    const form = new FormData();
+    form.set("model", "@cf/black-forest-labs/flux-2-klein-4b");
+    form.set("prompt", "Change the blue square to a green square on the same plain background");
+    form.set("image", new Blob([makeSolidPng(32, 32)], { type: "image/png" }), "probe.png");
+    const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/images/edits`, {
+      method: "POST",
+      headers: { authorization: `Bearer ${appToken}` },
+      body: form,
+      signal: AbortSignal.timeout(100_000),
+    });
+    if (!response.ok) {
+      const diagnostic = await readSmokeFailure(response);
+      console.error(`ROUTER_IMAGE_EDIT_SMOKE_FAIL status=${response.status}${diagnostic ? ` detail=${diagnostic}` : ""}`);
+      return;
+    }
+    const payload = await response.json();
+    const encoded = payload?.data?.[0]?.b64_json;
+    if (typeof encoded === "string" && encoded.length > 100) console.log("ROUTER_IMAGE_EDIT_SMOKE_OK");
+    else console.error("ROUTER_IMAGE_EDIT_SMOKE_FAIL invalid_response");
+  } catch (error) {
+    console.error(`ROUTER_IMAGE_EDIT_SMOKE_FAIL ${error?.name ?? "error"}`);
   }
 }
 
@@ -179,6 +208,7 @@ if (isMain) {
         console.log(`Router IA listening on port ${port}.`);
         void runStartupSmokeTest({ port, appToken });
         void runStartupImageSmokeTest({ port, appToken });
+        void runStartupImageEditSmokeTest({ port, appToken });
         void runStartupCloudflareSync();
         void runStartupCapabilityAudit();
       });

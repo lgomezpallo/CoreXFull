@@ -1,3 +1,11 @@
+import { execFile } from "node:child_process";
+import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { promisify } from "node:util";
+
+const execFileAsync = promisify(execFile);
+
 const GITHUB_OWNER = process.env.PRISMA_GITHUB_OWNER?.trim() || "lgomezpallo";
 const GITHUB_REPO = process.env.PRISMA_GITHUB_REPO?.trim() || "CoreXFull";
 const GITHUB_BRANCH = process.env.PRISMA_GITHUB_BRANCH?.trim() || "main";
@@ -98,6 +106,59 @@ export async function corexSearch(queryValue: string) {
   };
 }
 
+function hasTokenWrite() {
+  return Boolean(process.env.PRISMA_GITHUB_TOKEN?.trim());
+}
+
+function hasSshWrite() {
+  return Boolean(process.env.PRISMA_GITHUB_SSH_KEY?.trim());
+}
+
+async function writeViaSsh(input: {
+  path: string;
+  content: string;
+  expectedSha?: string;
+  message: string;
+  create?: boolean;
+}) {
+  const privateKey = process.env.PRISMA_GITHUB_SSH_KEY?.trim();
+  if (!privateKey) throw new Error("Prisma no tiene configurada una clave SSH de escritura.");
+
+  const workdir = await mkdtemp(join(tmpdir(), "prisma-corex-"));
+  const keyPath = join(workdir, "id_ed25519");
+  const repoDir = join(workdir, "repo");
+  const env = {
+    ...process.env,
+    GIT_SSH_COMMAND: `ssh -i ${keyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`,
+  };
+
+  try {
+    await writeFile(keyPath, `${privateKey}\n`, { mode: 0o600 });
+    await execFileAsync("git", ["clone", "--depth", "1", "--branch", GITHUB_BRANCH, `git@github.com:${GITHUB_OWNER}/${GITHUB_REPO}.git`, repoDir], { env, timeout: 90_000 });
+
+    const target = join(repoDir, input.path);
+    if (!input.create) {
+      const { stdout } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${input.path}`], { env, timeout: 20_000 });
+      const actualSha = stdout.trim();
+      if (!input.expectedSha || actualSha !== input.expectedSha.trim()) {
+        throw new Error("El archivo cambió desde que Prisma lo leyó. Debe releerlo antes de escribir.");
+      }
+    }
+
+    await writeFile(target, input.content, "utf8");
+    await execFileAsync("git", ["-C", repoDir, "config", "user.name", "Prisma CoreX Agent"], { env, timeout: 20_000 });
+    await execFileAsync("git", ["-C", repoDir, "config", "user.email", "prisma-agent@users.noreply.github.com"], { env, timeout: 20_000 });
+    await execFileAsync("git", ["-C", repoDir, "add", "--", input.path], { env, timeout: 20_000 });
+    await execFileAsync("git", ["-C", repoDir, "commit", "-m", `[Prisma] ${input.message}`], { env, timeout: 30_000 });
+    await execFileAsync("git", ["-C", repoDir, "push", "origin", `HEAD:${GITHUB_BRANCH}`], { env, timeout: 90_000 });
+    const { stdout: commitSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"], { env, timeout: 20_000 });
+    const { stdout: contentSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${input.path}`], { env, timeout: 20_000 });
+    return { path: input.path, commitSha: commitSha.trim(), contentSha: contentSha.trim(), transport: "ssh" };
+  } finally {
+    await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export async function corexWriteFile(input: {
   path: string;
   content: string;
@@ -111,21 +172,30 @@ export async function corexWriteFile(input: {
   if (!message) throw new Error("La escritura exige un mensaje de cambio.");
   if (Buffer.byteLength(input.content, "utf8") > 800_000) throw new Error("El archivo es demasiado grande para esta herramienta.");
 
-  const payload = await githubJson(`${API_ROOT}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, {
-    method: "PUT",
-    headers: { ...githubHeaders(true), "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: `[Prisma] ${message}`,
-      content: Buffer.from(input.content, "utf8").toString("base64"),
-      sha: expectedSha,
-      branch: GITHUB_BRANCH,
-    }),
-  });
-  return {
-    path,
-    commitSha: String(payload?.commit?.sha ?? ""),
-    contentSha: String(payload?.content?.sha ?? ""),
-  };
+  if (hasTokenWrite()) {
+    const payload = await githubJson(`${API_ROOT}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, {
+      method: "PUT",
+      headers: { ...githubHeaders(true), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `[Prisma] ${message}`,
+        content: Buffer.from(input.content, "utf8").toString("base64"),
+        sha: expectedSha,
+        branch: GITHUB_BRANCH,
+      }),
+    });
+    return {
+      path,
+      commitSha: String(payload?.commit?.sha ?? ""),
+      contentSha: String(payload?.content?.sha ?? ""),
+      transport: "token",
+    };
+  }
+
+  if (hasSshWrite()) {
+    return writeViaSsh({ path, content: input.content, expectedSha, message });
+  }
+
+  throw new Error("Prisma no tiene configurada una credencial GitHub de escritura.");
 }
 
 export async function corexCreateFile(input: { path: string; content: string; message: string }) {
@@ -133,20 +203,30 @@ export async function corexCreateFile(input: { path: string; content: string; me
   const message = input.message.trim().slice(0, 160);
   if (!message) throw new Error("La creación exige un mensaje de cambio.");
   if (Buffer.byteLength(input.content, "utf8") > 800_000) throw new Error("El archivo es demasiado grande para esta herramienta.");
-  const payload = await githubJson(`${API_ROOT}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, {
-    method: "PUT",
-    headers: { ...githubHeaders(true), "Content-Type": "application/json" },
-    body: JSON.stringify({
-      message: `[Prisma] ${message}`,
-      content: Buffer.from(input.content, "utf8").toString("base64"),
-      branch: GITHUB_BRANCH,
-    }),
-  });
-  return {
-    path,
-    commitSha: String(payload?.commit?.sha ?? ""),
-    contentSha: String(payload?.content?.sha ?? ""),
-  };
+
+  if (hasTokenWrite()) {
+    const payload = await githubJson(`${API_ROOT}/contents/${path.split("/").map(encodeURIComponent).join("/")}`, {
+      method: "PUT",
+      headers: { ...githubHeaders(true), "Content-Type": "application/json" },
+      body: JSON.stringify({
+        message: `[Prisma] ${message}`,
+        content: Buffer.from(input.content, "utf8").toString("base64"),
+        branch: GITHUB_BRANCH,
+      }),
+    });
+    return {
+      path,
+      commitSha: String(payload?.commit?.sha ?? ""),
+      contentSha: String(payload?.content?.sha ?? ""),
+      transport: "token",
+    };
+  }
+
+  if (hasSshWrite()) {
+    return writeViaSsh({ path, content: input.content, message, create: true });
+  }
+
+  throw new Error("Prisma no tiene configurada una credencial GitHub de escritura.");
 }
 
 export function corexToolStatus() {
@@ -154,7 +234,8 @@ export function corexToolStatus() {
     repository: `${GITHUB_OWNER}/${GITHUB_REPO}`,
     branch: GITHUB_BRANCH,
     read: true,
-    write: Boolean(process.env.PRISMA_GITHUB_TOKEN?.trim()),
+    write: hasTokenWrite() || hasSshWrite(),
+    writeTransport: hasTokenWrite() ? "token" : hasSshWrite() ? "ssh" : null,
     writeScope: "corex/",
     optimisticLocking: true,
   };

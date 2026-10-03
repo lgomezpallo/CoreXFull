@@ -1,10 +1,11 @@
 import { unzipSync } from 'fflate';
 import type { AppBuilderReference } from '@workspace/api-client-react';
 import { formatAndroidManifestSummary, parseAndroidManifest } from './android-manifest';
+import { extractXapkBase, MAX_XAPK_SIZE } from './xapk';
 
 export const MAX_REFERENCE_FILES = 5;
 export const REFERENCE_FILE_ACCEPT = [
-  '.apk', '.zip', '.pdf', '.docx', '.pptx', '.xlsx',
+  '.apk', '.xapk', '.zip', '.pdf', '.docx', '.pptx', '.xlsx',
   '.png', '.jpg', '.jpeg', '.webp',
   '.txt', '.md', '.csv', '.json', '.xml', '.html', '.css', '.py',
   '.js', '.jsx', '.ts', '.tsx', '.yaml', '.yml', '.sql', '.svg',
@@ -303,14 +304,50 @@ async function prepareArchive(file: File, isApk: boolean): Promise<ReferenceAtta
   );
 }
 
+async function prepareXapk(file: File): Promise<ReferenceAttachment> {
+  if (file.size > MAX_XAPK_SIZE) {
+    throw new Error('Cada XAPK puede pesar hasta 180 MB.');
+  }
+  const bytes = new Uint8Array(await file.arrayBuffer());
+  const { apkBytes, metadata } = extractXapkBase(bytes);
+  const nestedApk = new File(
+    [new Uint8Array(apkBytes).buffer as ArrayBuffer],
+    metadata.basePath.split('/').pop() || 'base.apk',
+    { type: 'application/vnd.android.package-archive' },
+  );
+  const analyzed = await prepareArchive(nestedApk, true);
+  const summary = [
+    'XAPK analizado como contenedor Android; no se instaló ni se ejecutó.',
+    metadata.appName ? `App declarada: ${metadata.appName}.` : '',
+    metadata.packageName ? `Paquete: ${metadata.packageName}.` : '',
+    metadata.versionName ? `Versión: ${metadata.versionName}.` : '',
+    `APK base analizado: ${metadata.basePath}.`,
+    `APKs incluidos (${metadata.apkPaths.length}): ${metadata.apkPaths.slice(0, 24).join(', ')}${metadata.apkPaths.length > 24 ? ', …' : ''}.`,
+    analyzed.payload.extractedText,
+  ].filter(Boolean).join('\n');
+  return makeAttachment(
+    file,
+    'apk',
+    summary,
+    `XAPK: APK base analizado${metadata.apkPaths.length > 1 ? ` + ${metadata.apkPaths.length - 1} splits inventariados` : ''}`,
+    analyzed.payload.imageDataUrl,
+  );
+}
+
 export async function prepareReferenceFile(file: File): Promise<ReferenceAttachment> {
   const extension = extensionOf(file.name);
-  const maxSize = extension === 'apk' ? MAX_APK_SIZE : MAX_FILE_SIZE;
+  const maxSize = extension === 'apk'
+    ? MAX_APK_SIZE
+    : extension === 'xapk'
+      ? MAX_XAPK_SIZE
+      : MAX_FILE_SIZE;
   if (file.size > maxSize) {
     throw new Error(
       extension === 'apk'
         ? 'Cada APK puede pesar hasta 70 MB.'
-        : 'Cada archivo puede pesar hasta 25 MB.',
+        : extension === 'xapk'
+          ? 'Cada XAPK puede pesar hasta 180 MB.'
+          : 'Cada archivo puede pesar hasta 25 MB.',
     );
   }
 
@@ -325,6 +362,7 @@ export async function prepareReferenceFile(file: File): Promise<ReferenceAttachm
   }
   if (extension === 'zip') return prepareArchive(file, false);
   if (extension === 'apk') return prepareArchive(file, true);
+  if (extension === 'xapk') return prepareXapk(file);
 
   if (textExtensions.has(extension)) {
     const text = await file.text();

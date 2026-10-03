@@ -93,8 +93,9 @@ async function runStartupCapabilityAudit() {
     return;
   }
   try {
-    console.log("ROUTER_CAPABILITY_AUDIT_START");
-    const result = await auditAllProviders({ providerStore, concurrency: 2 });
+    const inconclusiveOnly = process.env.ROUTER_PROVIDER_CAPABILITY_AUDIT_INCONCLUSIVE_ONLY === "1";
+    console.log(`ROUTER_CAPABILITY_AUDIT_START mode=${inconclusiveOnly ? "inconclusive" : "all"}`);
+    const result = await auditAllProviders({ providerStore, concurrency: 2, inconclusiveOnly });
     console.log(`ROUTER_CAPABILITY_AUDIT_OK total=${result.total} verified=${result.verifiedModels} inconclusive=${result.inconclusiveModels}`);
   } catch (error) {
     console.error(`ROUTER_CAPABILITY_AUDIT_FAIL ${error?.name ?? "error"}`);

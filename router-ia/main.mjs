@@ -1,6 +1,7 @@
 import { resolve } from "node:path";
 import { pathToFileURL } from "node:url";
 import { createCapabilitiesHandler } from "./capabilities-route.mjs";
+import { createSmartChatHandler } from "./chat-handler.mjs";
 import { createMultimodalHandler } from "./multimodal-routes.mjs";
 import { createSupabaseProviderStore } from "./provider-store.mjs";
 import { createRouterServer } from "./server.mjs";
@@ -40,6 +41,11 @@ export function createRouterApp(overrides = {}) {
     appToken,
     providerStore,
   });
+  const smartChatHandler = createSmartChatHandler({
+    appToken,
+    providerStore,
+    fetchImpl,
+  });
   const multimodalHandler = createMultimodalHandler({
     appToken,
     providerStore,
@@ -50,6 +56,7 @@ export function createRouterApp(overrides = {}) {
     const url = new URL(request.url ?? "/", "http://router.local");
     try {
       if (await capabilitiesHandler(request, response, url)) return;
+      if (await smartChatHandler(request, response, url)) return;
       if (await multimodalHandler(request, response, url)) return;
       return await baseHandler(request, response);
     } catch {

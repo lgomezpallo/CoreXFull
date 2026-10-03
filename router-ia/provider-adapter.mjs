@@ -20,6 +20,16 @@ export const GROQ_FREE_PLAN_MODEL_IDS = Object.freeze([
   "whisper-large-v3-turbo",
 ]);
 
+export const CLOUDFLARE_PAID_ONLY_MODEL_IDS = Object.freeze([
+  "@cf/moonshotai/kimi-k2.6",
+  "@cf/moonshotai/kimi-k2.7-code",
+  "@cf/zai-org/glm-5.2",
+  "@cf/zai-org/glm-5.3",
+  "@cf/zai-org/glm-5.3-flash",
+  "@cf/deepseek-ai/deepseek-v4-flash-0731",
+  "@cf/deepseek-ai/deepseek-v4-pro-0813",
+]);
+
 export const ROUTER_TASK_TYPES = Object.freeze([
   "chat",
   "coding",
@@ -47,6 +57,7 @@ const MAX_MODEL_PRICING_FIELDS = 30;
 const MAX_DISCOVERED_MODELS = 2_000;
 const CLOUDFLARE_PAGE_SIZE = 100;
 const groqFreePlanModelIds = new Set(GROQ_FREE_PLAN_MODEL_IDS);
+const cloudflarePaidOnlyModelIds = new Set(CLOUDFLARE_PAID_ONLY_MODEL_IDS);
 
 export function isGroqFreePlanBaseUrl(baseUrl) {
   try {
@@ -84,6 +95,15 @@ export function isCloudflareWorkersAiBaseUrl(baseUrl) {
   }
 }
 
+export function isCloudflareWorkersAiFreeModel(model, baseUrl) {
+  return (
+    isCloudflareWorkersAiBaseUrl(baseUrl) &&
+    typeof model?.id === "string" &&
+    model.id.startsWith("@cf/") &&
+    !cloudflarePaidOnlyModelIds.has(model.id)
+  );
+}
+
 export function normalizeCapabilities(value) {
   if (!Array.isArray(value)) throw new Error("Elegí al menos una capacidad para este modelo.");
   const capabilities = [...new Set(value)];
@@ -111,6 +131,10 @@ export function normalizeModelMetadata(value) {
     metadata.freePlanAccess = value.freePlanAccess;
   }
 
+  if (typeof value.taskName === "string" && value.taskName.trim().length > 0 && value.taskName.trim().length <= 80) {
+    metadata.taskName = value.taskName.trim();
+  }
+
   if (value.pricing && typeof value.pricing === "object" && !Array.isArray(value.pricing)) {
     const pricing = {};
     const entries = Object.entries(value.pricing);
@@ -136,22 +160,38 @@ export function isExplicitlyFreeModel(model) {
   return Object.values(pricing).every((price) => Number(price) === 0);
 }
 
+function taskCapabilities(taskName, modelId) {
+  const task = typeof taskName === "string" ? taskName.trim().toLowerCase() : "";
+  const capabilities = [];
+  if (task === "text generation") capabilities.push("chat");
+  else if (task === "image-to-text") capabilities.push("vision");
+  else if (task === "automatic speech recognition") capabilities.push("transcription");
+  else if (task === "text-to-speech") capabilities.push("speech");
+  else if (task === "text-to-image") {
+    capabilities.push("image_generation");
+    if (/flux-2-(?:dev|klein)/i.test(modelId ?? "")) capabilities.push("image_editing");
+  } else if (task === "summarization") capabilities.push("summarization");
+  return capabilities;
+}
+
 export function inferModelCapabilities(model) {
   const metadata = normalizeModelMetadata(model);
   const inputs = metadata.inputModalities ?? [];
   const outputs = metadata.outputModalities ?? [];
   const parameters = metadata.supportedParameters ?? [];
-  const capabilities = [];
-  if (inputs.includes("text") && outputs.includes("text")) capabilities.push("chat");
-  if (inputs.includes("image") && outputs.includes("text")) capabilities.push("vision");
-  if (inputs.some((modality) => ["document", "pdf"].includes(modality))) capabilities.push("document");
-  if (inputs.includes("audio") && outputs.some((modality) => ["text", "transcription"].includes(modality))) capabilities.push("transcription");
-  if (inputs.includes("text") && outputs.some((modality) => ["audio", "speech"].includes(modality))) capabilities.push("speech");
-  if (inputs.includes("text") && outputs.includes("image")) capabilities.push("image_generation");
-  if (inputs.includes("image") && outputs.includes("image")) capabilities.push("image_editing");
+  const capabilities = [...taskCapabilities(metadata.taskName, model?.id)];
+  if (inputs.includes("text") && outputs.includes("text") && !capabilities.includes("chat")) capabilities.push("chat");
+  if (inputs.includes("image") && outputs.includes("text") && !capabilities.includes("vision")) capabilities.push("vision");
+  if (inputs.some((modality) => ["document", "pdf"].includes(modality)) && !capabilities.includes("document")) capabilities.push("document");
+  if (inputs.includes("audio") && outputs.some((modality) => ["text", "transcription"].includes(modality)) && !capabilities.includes("transcription")) capabilities.push("transcription");
+  if (inputs.includes("text") && outputs.some((modality) => ["audio", "speech"].includes(modality)) && !capabilities.includes("speech")) capabilities.push("speech");
+  if (inputs.includes("text") && outputs.includes("image") && !capabilities.includes("image_generation")) capabilities.push("image_generation");
+  if (inputs.includes("image") && outputs.includes("image") && !capabilities.includes("image_editing")) capabilities.push("image_editing");
   if (parameters.some((parameter) => ["image", "image_generation", "images", "generate_image"].includes(parameter)) && !capabilities.includes("image_generation")) capabilities.push("image_generation");
   if (Number.isSafeInteger(metadata.contextLength) && metadata.contextLength >= 100_000) capabilities.push("long_context");
-  return capabilities;
+  if (/coder|code/i.test(model?.id ?? "") && capabilities.includes("chat")) capabilities.push("coding");
+  if (/reason|qwq|r1|gpt-oss/i.test(model?.id ?? "") && capabilities.includes("chat")) capabilities.push("reasoning");
+  return [...new Set(capabilities)];
 }
 
 export function normalizeProviderInput(input) {
@@ -171,7 +211,7 @@ export function normalizeProviderInput(input) {
   const modelMetadata = normalizeModelMetadata(input?.modelMetadata);
   if (modelMetadata.freePlanAccess === "groq_free_plan" && !isGroqFreePlanModel({ id: model }, baseUrl)) delete modelMetadata.freePlanAccess;
   if (modelMetadata.freePlanAccess === "nvidia_api_catalog_prototyping" && !isNvidiaApiCatalogBaseUrl(baseUrl)) delete modelMetadata.freePlanAccess;
-  if (modelMetadata.freePlanAccess === "cloudflare_workers_ai_free" && !isCloudflareWorkersAiBaseUrl(baseUrl)) delete modelMetadata.freePlanAccess;
+  if (modelMetadata.freePlanAccess === "cloudflare_workers_ai_free" && !isCloudflareWorkersAiFreeModel({ id: model }, baseUrl)) delete modelMetadata.freePlanAccess;
   return { provider, name, baseUrl, apiKey, model, capabilities, priority, modelMetadata };
 }
 
@@ -191,7 +231,7 @@ export function normalizeCustomBaseUrl(value) {
 export function getModelsEndpoint(baseUrl, page = 1) {
   const normalized = baseUrl.replace(/\/+$/, "");
   if (isCloudflareWorkersAiBaseUrl(normalized)) {
-    return `${normalized}/models/search?format=openrouter&per_page=${CLOUDFLARE_PAGE_SIZE}&page=${page}`;
+    return `${normalized}/models/search?hide_experimental=true&include_deprecated=false&per_page=${CLOUDFLARE_PAGE_SIZE}&page=${page}`;
   }
   return normalized.endsWith("/models") ? normalized : `${normalized}/models`;
 }
@@ -207,11 +247,14 @@ function normalizeModel(entry) {
   if (!id || id.length > 200) return null;
   const architecture = asRecord(model.architecture);
   const pricing = asRecord(model.pricing);
+  const task = asRecord(model.task);
+  const taskName = typeof task.name === "string" ? task.name : typeof model.task === "string" ? model.task : typeof model.task_name === "string" ? model.task_name : "";
   const metadata = normalizeModelMetadata({
     contextLength: model.context_length ?? model.context_window ?? model.contextLength,
     inputModalities: architecture.input_modalities ?? model.input_modalities ?? model.inputModalities,
     outputModalities: architecture.output_modalities ?? model.output_modalities ?? model.outputModalities,
     supportedParameters: model.supported_parameters ?? model.supportedParameters,
+    taskName,
     pricing,
   });
   return { id, ...metadata };
@@ -256,7 +299,11 @@ export async function discoverModels({ baseUrl, apiKey, fetchImpl = globalThis.f
       const normalized = normalizeModel(entry);
       if (!normalized || seen.has(normalized.id)) continue;
       seen.add(normalized.id);
-      models.push(cloudflare ? { ...normalized, freePlanAccess: "cloudflare_workers_ai_free" } : normalized);
+      models.push(
+        cloudflare && isCloudflareWorkersAiFreeModel(normalized, baseUrl)
+          ? { ...normalized, freePlanAccess: "cloudflare_workers_ai_free" }
+          : normalized,
+      );
     }
 
     if (!cloudflare || source.length < CLOUDFLARE_PAGE_SIZE || source.length === 0) break;

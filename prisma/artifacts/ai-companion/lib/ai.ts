@@ -8,6 +8,11 @@ interface ChatPayloadMessage {
   content: string;
 }
 
+export interface PrismaImageAttachment {
+  data: string;
+  mimeType: 'image/jpeg' | 'image/png' | 'image/webp';
+}
+
 function getApiOrigin() {
   const domain = process.env.EXPO_PUBLIC_DOMAIN;
   if (!domain && Platform.OS === 'web') return window.location.origin;
@@ -22,6 +27,7 @@ export async function streamAiReply(
   mode: Extract<ChatMode, 'chat' | 'document'>,
   conversationId: string,
   onText: (chunk: string) => void,
+  image?: PrismaImageAttachment,
 ) {
   const response = await fetch(`${getApiOrigin()}/api/prisma/chat`, {
     method: 'POST',
@@ -29,7 +35,7 @@ export async function streamAiReply(
       'Content-Type': 'application/json',
       Accept: 'text/event-stream',
     },
-    body: JSON.stringify({ messages, mode, conversationId }),
+    body: JSON.stringify({ messages, mode, conversationId, image }),
   });
 
   if (!response.ok) {

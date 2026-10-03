@@ -163,7 +163,7 @@ export default function ChatScreen() {
             content: message.content,
           }));
 
-        await streamAiReply(chatHistory, mode, (chunk) => {
+        await streamAiReply(chatHistory, mode, conversationId, (chunk) => {
           assistantText += chunk;
           const assistantMessage: ConversationMessage = {
             id: assistantId,

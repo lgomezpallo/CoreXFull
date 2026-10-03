@@ -5,13 +5,15 @@ import {
 } from "./ai-provider";
 import {
   corexCreateFile,
-  corexListTree,
   corexManagedWriteSetup,
-  corexReadFile,
-  corexSearch,
   corexToolStatus,
   corexWriteFile,
 } from "./corex-tools";
+import {
+  corexListTree,
+  corexReadFile,
+  corexSearch,
+} from "./corex-ssh-read";
 import { createChangeRequest } from "./prisma-change-requests";
 import {
   listImportantMemories,
@@ -91,7 +93,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_read_file",
-      description: "Lee un archivo actual dentro de corex/ y devuelve contenido y SHA.",
+      description: "Lee por SSH un archivo actual dentro de corex/ y devuelve contenido y SHA.",
       parameters: {
         type: "object",
         properties: { path: { type: "string" } },
@@ -104,7 +106,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_list_tree",
-      description: "Lista estructura de archivos dentro de corex/.",
+      description: "Lista por SSH la estructura de archivos dentro de corex/.",
       parameters: {
         type: "object",
         properties: {
@@ -119,7 +121,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_search",
-      description: "Busca archivos/código dentro de corex/ antes de asumir dónde vive una función.",
+      description: "Busca por SSH archivos/código dentro de corex/ antes de asumir dónde vive una función.",
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },

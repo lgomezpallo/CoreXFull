@@ -21,7 +21,7 @@ export default function ChatMessage({
 }: ChatMessageProps) {
   const colors = useColors();
   const isUser = message.role === 'user';
-  const isImage = !!message.imageUri;
+  const hasImage = !!message.imageUri;
 
   return (
     <View
@@ -31,7 +31,7 @@ export default function ChatMessage({
       ]}
       testID={`message-${message.id}`}
     >
-      {!isUser && !isImage ? (
+      {!isUser && !hasImage ? (
         <View
           style={[
             styles.assistantMark,
@@ -49,13 +49,25 @@ export default function ChatMessage({
             : styles.assistantContent,
         ]}
       >
-        {isImage ? (
-          <Image
-            source={{ uri: message.imageUri }}
-            resizeMode="cover"
-            style={styles.generatedImage}
-            accessibilityLabel="Imagen generada por Prisma"
-          />
+        {hasImage ? (
+          <>
+            <Image
+              source={{ uri: message.imageUri }}
+              resizeMode="cover"
+              style={styles.generatedImage}
+              accessibilityLabel={isUser ? 'Imagen adjunta' : 'Imagen generada por Prisma'}
+            />
+            {isUser && message.content ? (
+              <Text
+                style={[
+                  styles.imageCaption,
+                  { color: colors.primaryForeground },
+                ]}
+              >
+                {readableText(message.content)}
+              </Text>
+            ) : null}
+          </>
         ) : (
           <Text
             style={[
@@ -145,6 +157,12 @@ const styles = StyleSheet.create({
     fontFamily: 'Inter_400Regular',
     fontSize: 15,
     lineHeight: 23,
+  },
+  imageCaption: {
+    fontFamily: 'Inter_400Regular',
+    fontSize: 14,
+    lineHeight: 20,
+    marginTop: 8,
   },
   generatedImage: {
     width: 250,

@@ -1,8 +1,9 @@
 import { execFile } from "node:child_process";
-import { mkdtemp, rm, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { promisify } from "node:util";
+import { ensurePrismaSshIdentity } from "./prisma-ssh-identity";
 
 const execFileAsync = promisify(execFile);
 
@@ -110,8 +111,48 @@ function hasTokenWrite() {
   return Boolean(process.env.PRISMA_GITHUB_TOKEN?.trim());
 }
 
-function hasSshWrite() {
-  return Boolean(process.env.PRISMA_GITHUB_SSH_KEY?.trim());
+async function privateSshKey() {
+  const configured = process.env.PRISMA_GITHUB_SSH_KEY?.trim();
+  if (configured) return configured;
+  return (await ensurePrismaSshIdentity()).privateKey;
+}
+
+function sshEnv(keyPath: string) {
+  return {
+    ...process.env,
+    GIT_SSH_COMMAND: `ssh -i ${keyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`,
+  };
+}
+
+export async function corexManagedWriteSetup() {
+  const identity = await ensurePrismaSshIdentity();
+  const workdir = await mkdtemp(join(tmpdir(), "prisma-corex-auth-"));
+  const keyPath = join(workdir, "id_ed25519");
+  try {
+    await writeFile(keyPath, `${identity.privateKey}\n`, { mode: 0o600 });
+    try {
+      await execFileAsync(
+        "git",
+        ["ls-remote", `git@github.com:${GITHUB_OWNER}/${GITHUB_REPO}.git`, `refs/heads/${GITHUB_BRANCH}`],
+        { env: sshEnv(keyPath), timeout: 30_000 },
+      );
+      return {
+        publicKey: identity.publicKey,
+        authorized: true,
+        repository: `${GITHUB_OWNER}/${GITHUB_REPO}`,
+        branch: GITHUB_BRANCH,
+      };
+    } catch {
+      return {
+        publicKey: identity.publicKey,
+        authorized: false,
+        repository: `${GITHUB_OWNER}/${GITHUB_REPO}`,
+        branch: GITHUB_BRANCH,
+      };
+    }
+  } finally {
+    await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
+  }
 }
 
 async function writeViaSsh(input: {
@@ -121,16 +162,11 @@ async function writeViaSsh(input: {
   message: string;
   create?: boolean;
 }) {
-  const privateKey = process.env.PRISMA_GITHUB_SSH_KEY?.trim();
-  if (!privateKey) throw new Error("Prisma no tiene configurada una clave SSH de escritura.");
-
+  const privateKey = await privateSshKey();
   const workdir = await mkdtemp(join(tmpdir(), "prisma-corex-"));
   const keyPath = join(workdir, "id_ed25519");
   const repoDir = join(workdir, "repo");
-  const env = {
-    ...process.env,
-    GIT_SSH_COMMAND: `ssh -i ${keyPath} -o IdentitiesOnly=yes -o StrictHostKeyChecking=accept-new`,
-  };
+  const env = sshEnv(keyPath);
 
   try {
     await writeFile(keyPath, `${privateKey}\n`, { mode: 0o600 });
@@ -143,17 +179,29 @@ async function writeViaSsh(input: {
       if (!input.expectedSha || actualSha !== input.expectedSha.trim()) {
         throw new Error("El archivo cambió desde que Prisma lo leyó. Debe releerlo antes de escribir.");
       }
+    } else {
+      await mkdir(dirname(target), { recursive: true });
     }
 
     await writeFile(target, input.content, "utf8");
     await execFileAsync("git", ["-C", repoDir, "config", "user.name", "Prisma CoreX Agent"], { env, timeout: 20_000 });
     await execFileAsync("git", ["-C", repoDir, "config", "user.email", "prisma-agent@users.noreply.github.com"], { env, timeout: 20_000 });
     await execFileAsync("git", ["-C", repoDir, "add", "--", input.path], { env, timeout: 20_000 });
+
+    try {
+      await execFileAsync("git", ["-C", repoDir, "diff", "--cached", "--quiet"], { env, timeout: 20_000 });
+      const { stdout: commitSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"], { env, timeout: 20_000 });
+      const { stdout: contentSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${input.path}`], { env, timeout: 20_000 });
+      return { path: input.path, commitSha: commitSha.trim(), contentSha: contentSha.trim(), transport: "ssh", changed: false };
+    } catch {
+      // git diff --quiet returns non-zero when there are staged changes.
+    }
+
     await execFileAsync("git", ["-C", repoDir, "commit", "-m", `[Prisma] ${input.message}`], { env, timeout: 30_000 });
     await execFileAsync("git", ["-C", repoDir, "push", "origin", `HEAD:${GITHUB_BRANCH}`], { env, timeout: 90_000 });
     const { stdout: commitSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"], { env, timeout: 20_000 });
     const { stdout: contentSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${input.path}`], { env, timeout: 20_000 });
-    return { path: input.path, commitSha: commitSha.trim(), contentSha: contentSha.trim(), transport: "ssh" };
+    return { path: input.path, commitSha: commitSha.trim(), contentSha: contentSha.trim(), transport: "ssh", changed: true };
   } finally {
     await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
   }
@@ -188,14 +236,11 @@ export async function corexWriteFile(input: {
       commitSha: String(payload?.commit?.sha ?? ""),
       contentSha: String(payload?.content?.sha ?? ""),
       transport: "token",
+      changed: true,
     };
   }
 
-  if (hasSshWrite()) {
-    return writeViaSsh({ path, content: input.content, expectedSha, message });
-  }
-
-  throw new Error("Prisma no tiene configurada una credencial GitHub de escritura.");
+  return writeViaSsh({ path, content: input.content, expectedSha, message });
 }
 
 export async function corexCreateFile(input: { path: string; content: string; message: string }) {
@@ -219,14 +264,11 @@ export async function corexCreateFile(input: { path: string; content: string; me
       commitSha: String(payload?.commit?.sha ?? ""),
       contentSha: String(payload?.content?.sha ?? ""),
       transport: "token",
+      changed: true,
     };
   }
 
-  if (hasSshWrite()) {
-    return writeViaSsh({ path, content: input.content, message, create: true });
-  }
-
-  throw new Error("Prisma no tiene configurada una credencial GitHub de escritura.");
+  return writeViaSsh({ path, content: input.content, message, create: true });
 }
 
 export function corexToolStatus() {
@@ -234,8 +276,8 @@ export function corexToolStatus() {
     repository: `${GITHUB_OWNER}/${GITHUB_REPO}`,
     branch: GITHUB_BRANCH,
     read: true,
-    write: hasTokenWrite() || hasSshWrite(),
-    writeTransport: hasTokenWrite() ? "token" : hasSshWrite() ? "ssh" : null,
+    write: hasTokenWrite(),
+    writeTransport: hasTokenWrite() ? "token" : "managed_ssh_pending_check",
     writeScope: "corex/",
     optimisticLocking: true,
   };

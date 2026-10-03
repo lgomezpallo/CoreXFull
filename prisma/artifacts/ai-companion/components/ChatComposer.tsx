@@ -22,11 +22,9 @@ interface ChatComposerProps {
   onChangeText: (value: string) => void;
   mode: ChatMode;
   onModeChange: (mode: ChatMode) => void;
-  onSend: () => void;
+  onSend: (attachment: SelectedPrismaImage | null) => void;
   isBusy: boolean;
   inputRef: RefObject<TextInput | null>;
-  attachment: SelectedPrismaImage | null;
-  onAttachmentChange: (attachment: SelectedPrismaImage | null) => void;
 }
 
 const modes: Array<{
@@ -55,10 +53,9 @@ export default function ChatComposer({
   onSend,
   isBusy,
   inputRef,
-  attachment,
-  onAttachmentChange,
 }: ChatComposerProps) {
   const colors = useColors();
+  const [attachment, setAttachment] = useState<SelectedPrismaImage | null>(null);
   const [attachmentError, setAttachmentError] = useState('');
   const placeholder =
     mode === 'image'
@@ -95,7 +92,15 @@ export default function ChatComposer({
       return;
     }
     onModeChange('chat');
-    onAttachmentChange({ uri: asset.uri, data: asset.base64, mimeType });
+    setAttachment({ uri: asset.uri, data: asset.base64, mimeType });
+  }
+
+  function sendCurrent() {
+    if (!canSend) return;
+    const currentAttachment = attachment;
+    setAttachment(null);
+    setAttachmentError('');
+    onSend(currentAttachment);
   }
 
   return (
@@ -119,7 +124,7 @@ export default function ChatComposer({
               testID={`mode-${item.id}`}
               disabled={isBusy}
               onPress={() => {
-                if (item.id === 'image' && attachment) onAttachmentChange(null);
+                if (item.id === 'image') setAttachment(null);
                 onModeChange(item.id);
               }}
               style={({ pressed }) => [
@@ -162,7 +167,7 @@ export default function ChatComposer({
           <Pressable
             accessibilityRole="button"
             accessibilityLabel="Quitar imagen"
-            onPress={() => onAttachmentChange(null)}
+            onPress={() => setAttachment(null)}
             style={[styles.removeAttachment, { backgroundColor: colors.secondary }]}
           >
             <Ionicons name="close" size={17} color={colors.secondaryForeground} />
@@ -205,7 +210,7 @@ export default function ChatComposer({
           maxLength={4000}
           blurOnSubmit={false}
           returnKeyType="send"
-          onSubmitEditing={onSend}
+          onSubmitEditing={sendCurrent}
           editable={!isBusy}
           selectionColor={colors.primary}
           accessibilityLabel={placeholder}
@@ -217,7 +222,7 @@ export default function ChatComposer({
           accessibilityLabel={isBusy ? 'Generando respuesta' : 'Enviar'}
           testID="send-message"
           disabled={!canSend}
-          onPress={onSend}
+          onPress={sendCurrent}
           style={({ pressed }) => [
             styles.sendButton,
             {

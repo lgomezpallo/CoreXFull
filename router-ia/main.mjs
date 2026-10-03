@@ -80,6 +80,38 @@ export function createRouterApp(overrides = {}) {
   return server;
 }
 
+async function runStartupSmokeTest({ port, appToken, fetchImpl = globalThis.fetch }) {
+  if (process.env.ROUTER_PROVIDER_SMOKE_TEST !== "1") return;
+  try {
+    const response = await fetchImpl(`http://127.0.0.1:${port}/api/v1/chat/completions`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${appToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        model: "router-ia-auto",
+        messages: [{ role: "user", content: "Respond exactly with OK." }],
+        max_tokens: 16,
+      }),
+      signal: AbortSignal.timeout(30_000),
+    });
+    if (!response.ok) {
+      console.error(`ROUTER_PROVIDER_SMOKE_FAIL status=${response.status}`);
+      return;
+    }
+    const payload = await response.json();
+    const content = payload?.choices?.[0]?.message?.content;
+    if (typeof content === "string" && content.trim().length > 0) {
+      console.log("ROUTER_PROVIDER_SMOKE_OK");
+    } else {
+      console.error("ROUTER_PROVIDER_SMOKE_FAIL invalid_response");
+    }
+  } catch (error) {
+    console.error(`ROUTER_PROVIDER_SMOKE_FAIL ${error?.name ?? "error"}`);
+  }
+}
+
 const isMain =
   process.argv[1] &&
   import.meta.url === pathToFileURL(resolve(process.argv[1])).href;
@@ -98,6 +130,7 @@ if (isMain) {
       const server = createRouterApp();
       server.listen(port, "0.0.0.0", () => {
         console.log(`Router IA listening on port ${port}.`);
+        void runStartupSmokeTest({ port, appToken });
       });
 
       const shutdown = () => {

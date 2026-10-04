@@ -91,7 +91,23 @@ test("tool-calling chat tries the next provider after a 400 payload rejection", 
     if (url.startsWith("https://tool-a.example")) return new Response("tools not supported", { status: 400 });
     return new Response(JSON.stringify({ id: "tool-fallback-ok", choices: [{ index: 0, message: { role: "assistant", content: "segunda opción funcionó" } }] }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "diagnosticá CoreX" }], tools: [{ type: "function", function: { name: "corex_search", description: "Busca en CoreX", parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] } } }], tool_choice: "auto" }) });
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "router-ia-auto",
+      messages: [{ role: "user", content: "diagnosticá CoreX" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "corex_search",
+          description: "Busca en CoreX",
+          parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+        },
+      }],
+      tool_choice: "auto",
+    }),
+  });
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.router.capability, "chat");
@@ -107,7 +123,7 @@ test("tool-calling chat continues after a model-specific 413", async (t) => {
     if (url.startsWith("https://small.example")) return new Response("request too large", { status: 413 });
     return new Response(JSON.stringify({ id: "large-ok", choices: [{ index: 0, message: { role: "assistant", content: "modelo grande funcionó" } }] }), { status: 200, headers: { "content-type": "application/json" } });
   });
-  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "revisá CoreX" }], tools: [{ type: "function", function: { name: "corex_search", description: "Busca en CoreX", parameters: { type: "object", properties: { query: { type: "string" } } } }] }) });
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "revisá CoreX" }], tools: [{ type: "function", function: { name: "corex_search", description: "Busca en CoreX", parameters: { type: "object", properties: { query: { type: "string" } } } } }] }) });
   const body = await response.json();
   assert.equal(response.status, 200);
   assert.equal(body.choices[0].message.content, "modelo grande funcionó");

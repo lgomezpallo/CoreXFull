@@ -1,6 +1,7 @@
 import app from "./app";
 import { getChatProviderConfig } from "./lib/ai-provider";
 import { runPrismaCorexAgent } from "./lib/prisma-corex-agent";
+import { runPrismaAgentMutationSmoke } from "./lib/prisma-agent-mutation-smoke";
 import { corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
 import { corexListTree } from "./lib/corex-ssh-read";
 import { logger } from "./lib/logger";
@@ -137,6 +138,23 @@ async function runWriteSmokeTest() {
   }
 }
 
+async function runMutationSmokeOnce() {
+  try {
+    const result = await runPrismaAgentMutationSmoke();
+    logger.info({ prismaMutationSmoke: result }, "Prisma mutation smoke test passed");
+  } catch (error) {
+    logger.error(
+      {
+        prismaMutationSmoke: {
+          ok: false,
+          error: error instanceof Error ? error.message.slice(0, 1400) : "unknown",
+        },
+      },
+      "Prisma mutation smoke test failed",
+    );
+  }
+}
+
 app.listen(port, (err) => {
   if (err) {
     logger.error({ err }, "Error listening on port");
@@ -147,4 +165,5 @@ app.listen(port, (err) => {
   void runOperationalSelfTest();
   void runAgentSmokeTest();
   void runWriteSmokeTest();
+  void runMutationSmokeOnce();
 });

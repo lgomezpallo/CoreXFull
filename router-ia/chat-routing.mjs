@@ -14,10 +14,16 @@ function hasImageContent(messages) {
   });
 }
 
+function isGenericGenerativeModel(provider) {
+  const identity = `${provider?.model ?? ""} ${provider?.name ?? ""}`.toLowerCase();
+  return !/(?:prompt[-_ ]?guard|safeguard|content[-_ ]?safety|moderation|\bsafety\b|\bguard\b)/i.test(identity);
+}
+
 function supportsCapability(provider, capability) {
   const verification = provider?.modelMetadata?.capabilityVerification?.checks?.[capability]?.status;
   return (
     provider?.active === true &&
+    isGenericGenerativeModel(provider) &&
     !["unsupported", "blocked", "retired"].includes(verification) &&
     Array.isArray(provider.capabilities) &&
     provider.capabilities.includes(capability) &&
@@ -67,10 +73,10 @@ function shouldTryNextProvider({ capability, failure, responseStatus, toolReques
   // Vision providers are not fully payload-compatible with each other.
   if (capability === "vision" && payloadCompatibilityStatus) return true;
 
-  // Tool calling is also not uniformly supported even among otherwise valid chat models.
-  // Preserve the normal-chat conservation rule, but allow Prisma/agent requests to try
-  // the next provider when the current model rejects the tools payload.
-  if (toolRequest && payloadCompatibilityStatus) return true;
+  // Tool calling is not uniformly supported even among otherwise valid chat models.
+  // 413 can also be model-specific (small TPM/context allowance), so agent requests
+  // should keep moving to the next conservation-ranked candidate.
+  if (toolRequest && (payloadCompatibilityStatus || responseStatus === 413)) return true;
 
   return false;
 }

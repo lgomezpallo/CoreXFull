@@ -65,12 +65,29 @@ function hasToolRequest(upstreamBody) {
   return Array.isArray(upstreamBody?.tools) && upstreamBody.tools.length > 0;
 }
 
-function shouldTryNextProvider({ capability, failure, responseStatus, toolRequest }) {
+function plainChatToolMismatch(responseStatus, diagnostic, toolRequest) {
+  return (
+    !toolRequest &&
+    responseStatus === 400 &&
+    /tool choice is none|model called a tool|tool_use_failed/i.test(diagnostic)
+  );
+}
+
+function shouldTryNextProvider({ capability, failure, responseStatus, toolRequest, diagnostic }) {
   if (failure.transient) return true;
 
   const payloadCompatibilityStatus = [400, 404, 405, 415, 422].includes(responseStatus);
 
+  // Some models may try to emit a tool call even when the request deliberately has no tools.
+  // That is model-specific behavior and should not break an otherwise simple chat request.
+  if (plainChatToolMismatch(responseStatus, diagnostic, toolRequest)) return true;
+
+  // Vision providers are not fully payload-compatible with each other.
   if (capability === "vision" && payloadCompatibilityStatus) return true;
+
+  // Tool calling is not uniformly supported even among otherwise valid chat models.
+  // 413 can also be model-specific (small TPM/context allowance), so agent requests
+  // should keep moving to the next conservation-ranked candidate.
   if (toolRequest && (payloadCompatibilityStatus || responseStatus === 413)) return true;
 
   return false;
@@ -85,15 +102,12 @@ function sanitizeDiagnostic(text) {
     .slice(0, 320);
 }
 
-function chatEndpoint(provider) {
+function providerChatUrl(provider) {
   const base = provider.baseUrl.replace(/\/+$/, "");
-  const isCloudflare = /api\.cloudflare\.com/i.test(base) || /cloudflare/i.test(provider?.name ?? "");
-
-  if (isCloudflare) {
-    if (/\/ai\/v1$/i.test(base)) return `${base}/chat/completions`;
-    if (/\/ai$/i.test(base)) return `${base}/v1/chat/completions`;
+  const identity = `${provider?.name ?? ""} ${provider?.provider ?? ""}`.toLowerCase();
+  if (identity.includes("cloudflare")) {
+    return `${base}/v1/chat/completions`;
   }
-
   return `${base}/chat/completions`;
 }
 
@@ -129,7 +143,7 @@ export async function requestChatWithFallback({
     let response;
     try {
       response = await fetchImpl(
-        chatEndpoint(provider),
+        providerChatUrl(provider),
         {
           method: "POST",
           headers: {
@@ -177,7 +191,7 @@ export async function requestChatWithFallback({
       });
 
       if (requestedModel && requestedModel !== "router-ia-auto") break;
-      if (!shouldTryNextProvider({ capability, failure, responseStatus, toolRequest })) break;
+      if (!shouldTryNextProvider({ capability, failure, responseStatus, toolRequest, diagnostic })) break;
       continue;
     }
 

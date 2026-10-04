@@ -1,6 +1,6 @@
 import app from "./app";
 import { getChatProviderConfig } from "./lib/ai-provider";
-import { runPrismaAgent } from "./lib/prisma-agent";
+import { runPrismaCorexAgent } from "./lib/prisma-corex-agent";
 import { corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
 import { corexListTree } from "./lib/corex-ssh-read";
 import { logger } from "./lib/logger";
@@ -10,9 +10,7 @@ import { runPrismaWriteSmoke } from "./lib/prisma-write-smoke";
 const rawPort = process.env["PORT"];
 
 if (!rawPort) {
-  throw new Error(
-    "PORT environment variable is required but was not provided.",
-  );
+  throw new Error("PORT environment variable is required but was not provided.");
 }
 
 const port = Number(rawPort);
@@ -79,34 +77,42 @@ async function runOperationalSelfTest() {
 }
 
 async function runAgentSmokeTest() {
-  if (process.env.PRISMA_STARTUP_AGENT_SMOKE?.trim() !== "1") return;
-
   try {
     const provider = getChatProviderConfig();
-    const response = await runPrismaAgent({
+    const casual = await runPrismaCorexAgent({
+      provider,
+      mode: "chat",
+      messages: [{ role: "user", content: "Hola" }],
+    });
+    const diagnostic = await runPrismaCorexAgent({
       provider,
       mode: "chat",
       messages: [
         {
           role: "user",
-          content:
-            "Prueba operativa interna. Antes de responder, usa corex_status y corex_list_tree sobre corex con profundidad 0. Luego responde únicamente con una frase breve indicando repositorio, rama, si pudiste leer CoreX y si la escritura está habilitada. No prepares ni apliques cambios.",
+          content: "Revisá Mi Primera App/Diseño y ubicá el error de vista previa. No modifiques nada.",
         },
       ],
     });
     logger.info(
-      { prismaAgentSmoke: { ok: true, response: response.slice(0, 800) } },
-      "Prisma agent smoke test passed",
+      {
+        prismaAgentSmoke: {
+          ok: true,
+          casual: casual.slice(0, 500),
+          diagnostic: diagnostic.slice(0, 1600),
+        },
+      },
+      "Prisma CoreX agent smoke test passed",
     );
   } catch (error) {
     logger.error(
       {
         prismaAgentSmoke: {
           ok: false,
-          error: error instanceof Error ? error.message.slice(0, 800) : "unknown",
+          error: error instanceof Error ? error.message.slice(0, 1000) : "unknown",
         },
       },
-      "Prisma agent smoke test failed",
+      "Prisma CoreX agent smoke test failed",
     );
   }
 }

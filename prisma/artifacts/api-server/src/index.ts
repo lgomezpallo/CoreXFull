@@ -139,6 +139,7 @@ async function runWriteSmokeTest() {
 }
 
 async function runMutationSmokeOnce() {
+  if (process.env.PRISMA_STARTUP_MUTATION_SMOKE?.trim() !== "1") return;
   try {
     const result = await runPrismaAgentMutationSmoke();
     logger.info({ prismaMutationSmoke: result }, "Prisma mutation smoke test passed");

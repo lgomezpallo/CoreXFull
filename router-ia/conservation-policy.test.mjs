@@ -33,26 +33,31 @@ test("provider family is identified even when imported as custom", () => {
   assert.equal(identifyProviderFamily(provider({ id: "nv", name: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1" })), "nvidia");
 });
 
-test("verified Cloudflare is preferred to verified Groq regardless of manual priority", () => {
+test("established conservation order is Groq then Cloudflare then NVIDIA then OpenRouter", () => {
   clearConservationState();
-  const cloudflare = provider({ id: "cloudflare", priority: 10, freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
-  const groq = provider({ id: "groq", priority: 100, freePlanAccess: "groq_free_plan", status: "verified" });
-  assert.equal(sortByConservation([groq, cloudflare], "chat", 1_000)[0].id, "cloudflare");
-  assert.ok(conservationScore(cloudflare, "chat", 1_000) > conservationScore(groq, "chat", 1_000));
+  const groq = provider({ id: "groq", freePlanAccess: "groq_free_plan", status: "verified", priority: 1 });
+  const cloudflare = provider({ id: "cloudflare", freePlanAccess: "cloudflare_workers_ai_free", status: "verified", priority: 100 });
+  const nvidia = provider({ id: "nvidia", freePlanAccess: "nvidia_api_catalog_prototyping", status: "verified", priority: 100 });
+  const openrouter = provider({ id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", status: "verified", priority: 100 });
+  assert.deepEqual(
+    sortByConservation([openrouter, nvidia, cloudflare, groq], "chat", 1_000).map((item) => item.id),
+    ["groq", "cloudflare", "nvidia", "openrouter"],
+  );
+  assert.ok(conservationScore(groq, "chat", 1_000) > conservationScore(cloudflare, "chat", 1_000));
 });
 
-test("verified Groq is preferred to imported-custom OpenRouter", () => {
+test("provider family conservation outranks manual priority", () => {
   clearConservationState();
-  const groq = provider({ id: "groq", priority: 20, freePlanAccess: "groq_free_plan", status: "verified" });
-  const openrouter = provider({ id: "or", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", priority: 100, status: "verified" });
-  assert.equal(sortByConservation([openrouter, groq], "chat", 1_000)[0].id, "groq");
+  const groq = provider({ id: "groq", priority: 1, freePlanAccess: "groq_free_plan", status: "verified" });
+  const cloudflare = provider({ id: "cloudflare", priority: 100, freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
+  assert.equal(sortByConservation([cloudflare, groq], "chat", 1_000)[0].id, "groq");
 });
 
 test("verification outranks conservation tier", () => {
   clearConservationState();
   const verifiedNvidia = provider({ id: "nv", freePlanAccess: "nvidia_api_catalog_prototyping", status: "verified" });
-  const inconclusiveCloudflare = provider({ id: "cf", freePlanAccess: "cloudflare_workers_ai_free", status: "inconclusive" });
-  assert.equal(sortByConservation([inconclusiveCloudflare, verifiedNvidia], "chat", 1_000)[0].id, "nv");
+  const inconclusiveGroq = provider({ id: "g", freePlanAccess: "groq_free_plan", status: "inconclusive" });
+  assert.equal(sortByConservation([inconclusiveGroq, verifiedNvidia], "chat", 1_000)[0].id, "nv");
 });
 
 test("manual priority is a tie-breaker only inside the same tiers", () => {
@@ -64,12 +69,12 @@ test("manual priority is a tie-breaker only inside the same tiers", () => {
 
 test("unsupported verification is last even with high priority", () => {
   clearConservationState();
-  const unsupported = provider({ id: "bad", priority: 100, freePlanAccess: "cloudflare_workers_ai_free", status: "unsupported" });
+  const unsupported = provider({ id: "bad", priority: 100, freePlanAccess: "groq_free_plan", status: "unsupported" });
   const verified = provider({ id: "good", priority: 1, name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", status: "verified" });
   assert.equal(sortByConservation([unsupported, verified], "chat", 2_000)[0].id, "good");
 });
 
-test("vision uses the same verified-first and conservation hierarchy", () => {
+test("vision uses the same verified-first conservation hierarchy", () => {
   clearConservationState();
   const cfVision = provider({ id: "cf-vision", capability: "vision", capabilities: ["chat", "vision"], freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
   const orVision = provider({ id: "or-vision", capability: "vision", capabilities: ["chat", "vision"], name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", priority: 100, status: "verified" });
@@ -78,12 +83,13 @@ test("vision uses the same verified-first and conservation hierarchy", () => {
   assert.equal(routingRank(ordered[0], "vision", 3_000).verificationStatus, "verified");
 });
 
-test("quota failure places provider in cooldown and success clears it", () => {
+test("quota failure puts even the most spendable provider in cooldown", () => {
   clearConservationState();
-  const p = provider({ id: "quota", freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
-  recordProviderFailure(p, "quota", 10_000);
-  assert.equal(isProviderCoolingDown(p, 10_001), true);
-  assert.ok(conservationScore(p, "chat", 10_001) < -1000);
-  recordProviderSuccess(p);
-  assert.equal(isProviderCoolingDown(p, 10_001), false);
+  const groq = provider({ id: "quota", freePlanAccess: "groq_free_plan", status: "verified" });
+  const cloudflare = provider({ id: "cf", freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
+  recordProviderFailure(groq, "quota", 10_000);
+  assert.equal(isProviderCoolingDown(groq, 10_001), true);
+  assert.equal(sortByConservation([groq, cloudflare], "chat", 10_001)[0].id, "cf");
+  recordProviderSuccess(groq);
+  assert.equal(isProviderCoolingDown(groq, 10_001), false);
 });

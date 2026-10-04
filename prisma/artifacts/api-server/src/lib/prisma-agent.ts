@@ -42,7 +42,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "memory_search",
-      description: "Busca memoria persistente de Prisma sobre arquitectura, proyectos, pantallas, decisiones, errores y cambios previos. Úsala antes de pedir al usuario contexto que Prisma pueda recordar.",
+      description: "Busca memoria persistente relevante de Prisma/CoreX.",
       parameters: {
         type: "object",
         properties: {
@@ -58,7 +58,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "memory_remember",
-      description: "Guarda algo que Prisma deba conservar entre sesiones. Prioriza proyectos, fases, errores, causas, decisiones e invariantes que puedan afectar trabajo futuro.",
+      description: "Guarda una decisión, error, causa, cambio o invariante útil para el futuro.",
       parameters: {
         type: "object",
         properties: {
@@ -77,7 +77,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_status",
-      description: "Informa el repositorio, rama, alcance y estado básico de las herramientas de CoreX.",
+      description: "Devuelve estado básico de acceso a CoreX.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -85,7 +85,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_write_status",
-      description: "Comprueba la identidad SSH administrada por Prisma y si GitHub ya autorizó escritura para CoreX. Devuelve sólo la clave pública, nunca la privada.",
+      description: "Comprueba autorización de escritura administrada por Prisma.",
       parameters: { type: "object", properties: {}, additionalProperties: false },
     },
   },
@@ -93,7 +93,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_read_file",
-      description: "Lee por SSH un archivo actual dentro de corex/ y devuelve contenido y SHA.",
+      description: "Lee un archivo actual de corex/ y devuelve contenido y SHA.",
       parameters: {
         type: "object",
         properties: { path: { type: "string" } },
@@ -106,7 +106,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_list_tree",
-      description: "Lista por SSH la estructura de archivos dentro de corex/. Úsala para orientarte antes de pedir al usuario una ruta o archivo.",
+      description: "Lista estructura de archivos dentro de corex/.",
       parameters: {
         type: "object",
         properties: {
@@ -121,7 +121,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_search",
-      description: "Busca por SSH archivos/código dentro de corex/. Ante un error o una pantalla nombrada por el usuario, úsala para localizar textos visibles, nombres de etapas, rutas, componentes o funciones antes de pedirle al usuario que señale el archivo.",
+      description: "Busca texto, rutas, componentes o funciones dentro de corex/.",
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -134,7 +134,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_prepare_change",
-      description: "Guarda una propuesta completa de cambio sobre un archivo de corex/. Debe basarse en un archivo leído previamente y conservar su SHA esperado. No aplica el cambio automáticamente.",
+      description: "Prepara una propuesta de cambio sin aplicarla.",
       parameters: {
         type: "object",
         properties: {
@@ -152,7 +152,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_write_file",
-      description: "APLICA una modificación a un archivo existente dentro de corex/. Úsala sólo cuando el usuario haya pedido explícitamente modificar, corregir o aplicar el cambio. Debes haber leído el archivo actual y usar exactamente su SHA.",
+      description: "Aplica un cambio autorizado a un archivo existente usando su SHA actual.",
       parameters: {
         type: "object",
         properties: {
@@ -170,7 +170,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_create_file",
-      description: "CREA un archivo nuevo dentro de corex/. Úsala sólo cuando el usuario haya pedido explícitamente implementar un cambio que requiera ese archivo y hayas verificado antes la estructura de CoreX.",
+      description: "Crea un archivo nuevo autorizado dentro de corex/.",
       parameters: {
         type: "object",
         properties: {
@@ -209,7 +209,7 @@ async function executeTool(call: ToolCall): Promise<unknown> {
       return searchPrismaMemory(
         textArg(args, "query"),
         textArg(args, "scope") || undefined,
-        14,
+        10,
       );
     case "memory_remember":
       return rememberPrisma({
@@ -217,8 +217,7 @@ async function executeTool(call: ToolCall): Promise<unknown> {
         scope: textArg(args, "scope") || undefined,
         key: textArg(args, "key"),
         content: textArg(args, "content"),
-        importance:
-          typeof args.importance === "number" ? args.importance : undefined,
+        importance: typeof args.importance === "number" ? args.importance : undefined,
       });
     case "corex_status":
       return corexToolStatus();
@@ -258,21 +257,19 @@ async function executeTool(call: ToolCall): Promise<unknown> {
   }
 }
 
+function compact(value: unknown, limit = 4500) {
+  const text = JSON.stringify(value);
+  return text.length > limit ? `${text.slice(0, limit)}\n[resultado recortado]` : text;
+}
+
 function memoryBlock(memories: Awaited<ReturnType<typeof listImportantMemories>>) {
   if (!memories.length) return "Sin memoria persistente relevante todavía.";
   return memories
-    .map(
-      (item) =>
-        `- [${item.scope}/${item.kind}] ${item.key}: ${item.content}`,
-    )
+    .map((item) => {
+      const content = String(item.content ?? "");
+      return `- [${item.scope}/${item.kind}] ${item.key}: ${content.slice(0, 650)}`;
+    })
     .join("\n");
-}
-
-function compact(value: unknown) {
-  const text = JSON.stringify(value);
-  return text.length > 12_000
-    ? `${text.slice(0, 12_000)}\n[resultado recortado]`
-    : text;
 }
 
 function diagnosticKeywords(text: string) {
@@ -289,7 +286,42 @@ function diagnosticKeywords(text: string) {
       .replace(/[^a-z0-9@._-]+/g, " ")
       .split(/\s+/)
       .filter((word) => word.length >= 4 && !ignored.has(word)),
-  )].slice(0, 5);
+  )].slice(0, 4);
+}
+
+const TECH_RE = /corex|mi primera app|diseñ|vista previa|preview|builder|proyecto|archivo|repo|c[oó]digo|componente|ruta|error|fall|diagn[oó]st|revis|ubic|correg|arregl|modific|implement|memoria|herramienta|xapk/i;
+const CASUAL_RE = /^(hola|buenas|buen d[ií]a|buenas tardes|buenas noches|hey|holis|gracias|ok|joya|jaja+|\.\.?|\.\.\.)[!.? ]*$/i;
+const CONTINUATION_RE = /^(ahora\??|y ahora\??|dale|segu[ií]|revisalo|revisá|prob[aá]|otra vez)$/i;
+const ERROR_ASSISTANT_RE = /^(Router IA |Prisma alcanz[oó] |Prisma no pudo |<!doctype|<html)/i;
+
+function shouldUseTools(input: AgentInputMessage[], latestText: string) {
+  const latest = latestText.trim();
+  if (CASUAL_RE.test(latest)) return false;
+  if (TECH_RE.test(latest)) return true;
+  if (CONTINUATION_RE.test(latest)) {
+    const previousUsers = input
+      .filter((message) => message.role === "user")
+      .slice(-4, -1)
+      .map((message) => message.content)
+      .join(" ");
+    return TECH_RE.test(previousUsers);
+  }
+  return false;
+}
+
+function sanitizeHistory(input: AgentInputMessage[], limit: number) {
+  return input
+    .filter((message) => {
+      if (message.role !== "assistant") return true;
+      return !ERROR_ASSISTANT_RE.test(message.content.trim());
+    })
+    .map((message) => ({
+      role: message.role,
+      content: message.content.length > 1600
+        ? `${message.content.slice(0, 1600)}\n[mensaje anterior recortado]`
+        : message.content,
+    } as AgentInputMessage))
+    .slice(-limit);
 }
 
 function wait(ms: number) {
@@ -302,12 +334,11 @@ function isTransientRouterStatus(status: number) {
 
 async function routerErrorMessage(response: Response) {
   const contentType = response.headers.get("content-type") ?? "";
-  const text = (await response.text().catch(() => "")).slice(0, 1200).trim();
-
+  const text = (await response.text().catch(() => "")).slice(0, 1000).trim();
   if (/application\/json/i.test(contentType) || text.startsWith("{")) {
     try {
       const payload = JSON.parse(text) as {
-        error?: { message?: unknown; code?: unknown } | string;
+        error?: { message?: unknown } | string;
         message?: unknown;
       };
       const errorValue = payload?.error;
@@ -318,12 +349,11 @@ async function routerErrorMessage(response: Response) {
           : typeof payload?.message === "string"
             ? payload.message
             : "";
-      if (message.trim()) return message.trim().slice(0, 400);
+      if (message.trim()) return message.trim().slice(0, 350);
     } catch {}
   }
-
   if (/<!doctype\s+html|<html[\s>]/i.test(text)) return "";
-  return text.replace(/\s+/g, " ").slice(0, 400);
+  return text.replace(/\s+/g, " ").slice(0, 350);
 }
 
 async function requestRouter(
@@ -335,15 +365,14 @@ async function requestRouter(
   const body = JSON.stringify({
     model: provider.model,
     messages,
-    ...(options.tools
-      ? { tools: TOOL_DEFINITIONS, tool_choice: "auto" }
-      : {}),
-    max_tokens: options.tools ? 1800 : 1400,
+    ...(options.tools ? { tools: TOOL_DEFINITIONS, tool_choice: "auto" } : {}),
+    max_tokens: options.tools ? 1100 : 900,
     stream: false,
   });
 
+  const waits = [3500, 5500, 7500, 9500];
   let lastStatus = 502;
-  for (let attempt = 0; attempt < 3; attempt += 1) {
+  for (let attempt = 0; attempt < 5; attempt += 1) {
     let response: Response;
     try {
       response = await fetch(endpoint, {
@@ -353,50 +382,41 @@ async function requestRouter(
         signal: AbortSignal.timeout(120_000),
       });
     } catch (error) {
-      if (attempt < 2) {
-        await wait(900 * (attempt + 1));
+      if (attempt < 4) {
+        await wait(waits[attempt]);
         continue;
       }
       const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
       throw new Error(timeout
-        ? "Router IA tardó demasiado en responder. Probá de nuevo en unos segundos."
-        : "Prisma no pudo comunicarse con Router IA. Probá de nuevo en unos segundos.");
+        ? "Router IA tardó demasiado en responder."
+        : "Prisma no pudo comunicarse con Router IA.");
     }
 
     if (response.ok) return response;
-
     lastStatus = response.status;
-    if (isTransientRouterStatus(response.status) && attempt < 2) {
+    if (isTransientRouterStatus(response.status) && attempt < 4) {
       await response.body?.cancel().catch(() => {});
-      await wait(900 * (attempt + 1));
+      await wait(waits[attempt]);
       continue;
     }
 
     const detail = await routerErrorMessage(response);
     if (isTransientRouterStatus(response.status)) {
-      throw new Error(
-        `Router IA está temporalmente no disponible (HTTP ${response.status}). Probá de nuevo en unos segundos.`,
-      );
+      throw new Error(`Router IA sigue sin estar disponible (HTTP ${response.status}).`);
     }
     throw new Error(
       `Router IA no pudo completar el paso de Prisma (HTTP ${response.status})${detail ? `: ${detail}` : "."}`,
     );
   }
-
-  throw new Error(
-    `Router IA está temporalmente no disponible (HTTP ${lastStatus}). Probá de nuevo en unos segundos.`,
-  );
+  throw new Error(`Router IA sigue sin estar disponible (HTTP ${lastStatus}).`);
 }
 
 async function parseAssistantResponse(response: Response) {
   const payload = (await response.json()) as {
-    choices?: Array<{
-      message?: { content?: unknown; tool_calls?: unknown };
-    }>;
+    choices?: Array<{ message?: { content?: unknown; tool_calls?: unknown } }>;
   };
   const rawMessage = payload.choices?.[0]?.message;
-  const content =
-    typeof rawMessage?.content === "string" ? rawMessage.content : null;
+  const content = typeof rawMessage?.content === "string" ? rawMessage.content : null;
   const calls = Array.isArray(rawMessage?.tool_calls)
     ? rawMessage.tool_calls.filter((candidate): candidate is ToolCall => {
         const value = asObject(candidate);
@@ -414,21 +434,29 @@ async function parseAssistantResponse(response: Response) {
 
 async function finalizeWithEvidence(
   provider: AiProviderConfig,
+  latestUserText: string,
   messages: AgentMessage[],
 ) {
+  const evidence = messages
+    .filter((message): message is Extract<AgentMessage, { role: "tool" }> => message.role === "tool")
+    .slice(-6)
+    .map((message) => message.content.slice(0, 2600))
+    .join("\n\n");
+
   const finalMessages: AgentMessage[] = [
-    ...messages,
     {
       role: "system",
-      content:
-        "Cerrá esta solicitud ahora. No hay más herramientas disponibles. Usá únicamente la memoria, el código y los resultados de herramientas ya obtenidos. Respondé en español, de forma concreta: qué revisaste, qué encontraste, dónde está el problema o la mejor hipótesis sustentada, y cuál es el siguiente paso. Si faltó evidencia para afirmar una causa, decilo sin volver a pedir búsquedas ya realizadas.",
+      content: "Sos Prisma. Cerrá el diagnóstico con la evidencia disponible. No hay herramientas en esta etapa. Respondé en español y concreto: qué encontraste, dónde está el problema o la mejor hipótesis sustentada, y el siguiente paso. No inventes.",
+    },
+    { role: "user", content: latestUserText.slice(0, 1800) },
+    {
+      role: "user",
+      content: `EVIDENCIA OBTENIDA POR PRISMA:\n${evidence || "No hubo resultados de herramientas utilizables."}`,
     },
   ];
   const response = await requestRouter(provider, finalMessages, { tools: false });
   const { content } = await parseAssistantResponse(response);
-  if (!content?.trim()) {
-    throw new Error("Prisma investigó el caso pero no pudo sintetizar una respuesta final.");
-  }
+  if (!content?.trim()) throw new Error("Prisma no pudo sintetizar una respuesta final.");
   return content.trim();
 }
 
@@ -437,88 +465,93 @@ export async function runPrismaAgent(input: {
   messages: AgentInputMessage[];
   mode: "chat" | "document";
 }) {
-  const importantMemories = await listImportantMemories(
-    ["global", "prisma", "corex"],
-    32,
-  );
   const latestUserText = [...input.messages]
     .reverse()
     .find((message) => message.role === "user")?.content ?? "";
-  const keywordMemories = (
-    await Promise.all(
-      diagnosticKeywords(latestUserText).map((keyword) =>
-        searchPrismaMemory(keyword, undefined, 8).catch(() => []),
-      ),
-    )
-  ).flat();
+  const useTools = shouldUseTools(input.messages, latestUserText);
+
+  const importantMemories = await listImportantMemories(
+    ["global", "prisma", "corex"],
+    useTools ? 12 : 6,
+  );
+  const keywordMemories = useTools
+    ? (
+        await Promise.all(
+          diagnosticKeywords(latestUserText).map((keyword) =>
+            searchPrismaMemory(keyword, undefined, 5).catch(() => []),
+          ),
+        )
+      ).flat()
+    : [];
   const memoryById = new Map<number, (typeof importantMemories)[number]>();
   for (const memory of [...importantMemories, ...keywordMemories]) {
     memoryById.set(memory.id, memory);
   }
-  const memories = [...memoryById.values()].slice(0, 36);
+  const memories = [...memoryById.values()].slice(0, useTools ? 14 : 6);
 
-  const system = [
-    "Eres Prisma, agente responsable de conocer, preservar y evolucionar CoreX.",
-    "Responde en español por defecto y de forma directa. Tu objetivo no es devolver trabajo al usuario sino resolver con el contexto y las herramientas disponibles.",
-    "Tu memoria persistente es contexto operativo. Cuando el usuario nombre un proyecto, pantalla, etapa, error o decisión previa, úsala antes de pedir que te repita información.",
-    "No inventes el estado de CoreX: si depende del código actual, usa herramientas de lectura/búsqueda.",
-    "PROTOCOLO DE DIAGNÓSTICO DE COREX: 1) identifica proyecto/pantalla/fase a partir de lo que el usuario ya dijo; 2) consulta memoria relevante; 3) busca en corex/ textos visibles, nombres de etapas, rutas, componentes, errores o funciones relacionados; 4) lee los archivos candidatos; 5) formula una hipótesis basada en evidencia; 6) recién entonces pide un dato al usuario si sigue siendo imposible obtenerlo con tus herramientas.",
-    "No respondas de entrada con frases genéricas como 'pasame el log', 'decime el archivo', 'compartí la ruta' o 'dame más información' cuando todavía puedas buscar memoria o CoreX por tu cuenta.",
-    "No repitas una herramienta con exactamente los mismos argumentos dentro de una misma solicitud. Si una búsqueda ya se hizo, usa su resultado o cambia la consulta de manera sustancial.",
-    "En un diagnóstico normal, prioriza una búsqueda de memoria, hasta dos búsquedas distintas en CoreX y luego lectura de los archivos candidatos. Cuando tengas evidencia suficiente, deja de investigar y responde.",
-    "Si el usuario señala una pantalla o etapa, por ejemplo Diseño, vista previa o Mi Primera App, trata esos nombres como pistas de búsqueda: recupera memoria y busca esos textos o conceptos en el repo antes de preguntar.",
-    "Ante HTTP 400 u otros errores de integración, distingue primero si el origen probable es CoreX, Prisma, Router IA o un proveedor externo. No atribuyas automáticamente el fallo a CoreX.",
-    "Antes de proponer o aplicar una modificación de CoreX, recupera memoria relevante, inspecciona la estructura necesaria y lee el archivo actual cuando exista.",
-    "Preserva el principio fundamental de CoreX: construir desglosando operaciones pequeñas, sin convertir el trabajo en una única tarea gigante de programación.",
-    "No escribas en CoreX por iniciativa propia. Sólo usa corex_write_file o corex_create_file cuando el pedido actual del usuario exija explícitamente aplicar, modificar, corregir, arreglar o implementar algo en CoreX.",
-    "Para modificar un archivo existente debes haberlo leído en esta misma solicitud y usar exactamente el SHA devuelto por corex_read_file. Si el SHA cambió, relee y reevalúa antes de intentar otra vez.",
-    "Si el usuario sólo consulta, pide diagnóstico, opinión o propuesta, limita tu acción a leer, buscar, recordar y, si corresponde, corex_prepare_change; no escribas.",
-    "Cuando el usuario identifique un proyecto, fase, causa de error, decisión arquitectónica o corrección importante que pueda afectar trabajo futuro, guárdalo con memory_remember. No dependas sólo del historial visible.",
-    "Después de un cambio aplicado correctamente, conserva en memoria el cambio, el motivo y cualquier invariante arquitectónica relevante.",
-    "Cuando diagnostiques, comunica de forma breve: qué entendiste, dónde buscaste, qué encontraste y cuál es el siguiente paso. Evita listados de posibilidades sin investigar.",
+  if (!useTools) {
+    const simpleSystem = [
+      "Sos Prisma. Conversá en español, de forma directa y natural.",
+      "Conservá continuidad con el usuario usando el contexto breve disponible.",
+      "No actives herramientas de CoreX para saludos, charla común o mensajes que no requieran inspeccionar/modificar el proyecto.",
+      `CONTEXTO PERSISTENTE BREVE:\n${memoryBlock(memories)}`,
+    ].join("\n\n");
+    const simpleMessages: AgentMessage[] = [
+      { role: "system", content: simpleSystem },
+      ...sanitizeHistory(input.messages, 8),
+    ];
+    const response = await requestRouter(input.provider, simpleMessages, { tools: false });
+    const { content } = await parseAssistantResponse(response);
+    if (!content?.trim()) throw new Error("Prisma no devolvió una respuesta.");
+    return content.trim();
+  }
+
+  const technicalSystem = [
+    "Sos Prisma, agente responsable de conocer, preservar y evolucionar CoreX.",
+    "Resolvé con memoria y herramientas antes de devolver trabajo al usuario.",
+    "Diagnóstico: identifica proyecto/pantalla/fase; usa memoria; busca en corex/; lee sólo archivos candidatos; formula una hipótesis; pregunta únicamente si falta un dato imposible de obtener.",
+    "No repitas una herramienta con los mismos argumentos. En un diagnóstico normal usa como máximo una búsqueda de memoria, dos búsquedas distintas en CoreX y las lecturas necesarias.",
+    "Distingue fallas de CoreX, Prisma, Router IA y proveedores externos.",
+    "Preserva el principio de CoreX de desglosar operaciones pequeñas.",
+    "No escribas en CoreX salvo pedido explícito de modificar/corregir/arreglar/implementar. Para escribir un archivo existente, léelo antes y usa exactamente su SHA.",
+    "Después de un cambio aplicado, guarda en memoria el cambio y su motivo.",
     input.mode === "document"
       ? "Si el usuario pide un documento, redacta el documento completo."
-      : "Mantén una conversación práctica y orientada a resolver.",
-    `MEMORIA PERSISTENTE Y CONTEXTO RECUPERADO:\n${memoryBlock(memories)}`,
+      : "Cuando tengas evidencia suficiente, deja de investigar y responde.",
+    `MEMORIA RELEVANTE:\n${memoryBlock(memories)}`,
   ].join("\n\n");
 
   const messages: AgentMessage[] = [
-    { role: "system", content: system },
-    ...input.messages.slice(-20),
+    { role: "system", content: technicalSystem },
+    ...sanitizeHistory(input.messages, 8),
   ];
   const seenToolSignatures = new Set<string>();
-  const MAX_TOOL_ROUNDS = 6;
+  const MAX_TOOL_ROUNDS = 4;
 
   for (let step = 0; step < MAX_TOOL_ROUNDS; step += 1) {
     const response = await requestRouter(input.provider, messages, { tools: true });
     const { content, calls } = await parseAssistantResponse(response);
 
     if (!calls.length) {
-      if (!content?.trim()) {
-        throw new Error("Prisma no devolvió contenido ni pidió herramientas.");
-      }
+      if (!content?.trim()) throw new Error("Prisma no devolvió contenido ni pidió herramientas.");
       return content.trim();
     }
 
     messages.push({ role: "assistant", content, tool_calls: calls });
-    let repeatedToolCall = false;
+    let mustFinalize = step === MAX_TOOL_ROUNDS - 1;
 
-    for (const call of calls.slice(0, 6)) {
+    for (const call of calls.slice(0, 4)) {
       const signature = `${call.function.name}:${call.function.arguments}`;
       if (seenToolSignatures.has(signature)) {
-        repeatedToolCall = true;
+        mustFinalize = true;
         messages.push({
           role: "tool",
           tool_call_id: call.id,
-          content: compact({
-            ok: false,
-            error: "Esta misma herramienta con estos mismos argumentos ya fue ejecutada. Usa los resultados existentes y cierra el diagnóstico.",
-          }),
+          content: compact({ ok: false, error: "Esta consulta ya fue ejecutada; usa la evidencia existente y cierra." }),
         });
         continue;
       }
       seenToolSignatures.add(signature);
-
       try {
         const result = await executeTool(call);
         messages.push({
@@ -538,10 +571,10 @@ export async function runPrismaAgent(input: {
       }
     }
 
-    if (repeatedToolCall || step === MAX_TOOL_ROUNDS - 1) {
-      return finalizeWithEvidence(input.provider, messages);
+    if (mustFinalize) {
+      return finalizeWithEvidence(input.provider, latestUserText, messages);
     }
   }
 
-  return finalizeWithEvidence(input.provider, messages);
+  return finalizeWithEvidence(input.provider, latestUserText, messages);
 }

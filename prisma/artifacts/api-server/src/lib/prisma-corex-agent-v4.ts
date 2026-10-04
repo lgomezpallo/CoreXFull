@@ -11,6 +11,10 @@ export type { PrismaAgentInputMessage } from "./prisma-corex-agent-v3";
 
 const NEGATIVE_MUTATION_RE = /no\s+(?:modifi|toqu|cambi|reempl|apli|corrij|arregl|implement)|sin\s+(?:modificar|tocar|cambiar|reemplazar|aplicar)/i;
 
+function cleanLiteralToken(value: string) {
+  return value.replace(/[.,;:!?]+$/g, "");
+}
+
 function extractExactReplacement(text: string) {
   if (NEGATIVE_MUTATION_RE.test(text)) return null;
 
@@ -21,8 +25,10 @@ function extractExactReplacement(text: string) {
 
   for (const pattern of patterns) {
     const match = text.match(pattern);
-    if (match?.[1] && match?.[2] && match[1] !== match[2]) {
-      return { from: match[1], to: match[2] };
+    if (match?.[1] && match?.[2]) {
+      const from = cleanLiteralToken(match[1]);
+      const to = cleanLiteralToken(match[2]);
+      if (from && to && from !== to) return { from, to };
     }
   }
   return null;

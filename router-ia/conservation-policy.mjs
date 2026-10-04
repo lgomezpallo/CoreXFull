@@ -18,11 +18,13 @@ const VERIFICATION_TIER = Object.freeze({
   retired: 9,
 });
 
+// Established conservation order: spend Groq first, then Cloudflare,
+// keep NVIDIA more protected, and leave OpenRouter as broad fallback.
 const CONSERVATION_TIER = Object.freeze({
-  cloudflare: 0,
-  groq: 1,
-  openrouter: 2,
-  nvidia: 3,
+  groq: 0,
+  cloudflare: 1,
+  nvidia: 2,
+  openrouter: 3,
   custom: 4,
   openai: 9,
 });

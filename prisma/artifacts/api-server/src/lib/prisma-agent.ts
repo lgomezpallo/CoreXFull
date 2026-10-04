@@ -270,8 +270,8 @@ function memoryBlock(memories: Awaited<ReturnType<typeof listImportantMemories>>
 
 function compact(value: unknown) {
   const text = JSON.stringify(value);
-  return text.length > 45_000
-    ? `${text.slice(0, 45_000)}\n[resultado recortado]`
+  return text.length > 12_000
+    ? `${text.slice(0, 12_000)}\n[resultado recortado]`
     : text;
 }
 
@@ -326,17 +326,19 @@ async function routerErrorMessage(response: Response) {
   return text.replace(/\s+/g, " ").slice(0, 400);
 }
 
-async function requestRouterStep(
+async function requestRouter(
   provider: AiProviderConfig,
   messages: AgentMessage[],
+  options: { tools: boolean },
 ) {
   const endpoint = getProviderEndpoint(provider.baseUrl, "chat/completions");
   const body = JSON.stringify({
     model: provider.model,
     messages,
-    tools: TOOL_DEFINITIONS,
-    tool_choice: "auto",
-    max_tokens: 2200,
+    ...(options.tools
+      ? { tools: TOOL_DEFINITIONS, tool_choice: "auto" }
+      : {}),
+    max_tokens: options.tools ? 1800 : 1400,
     stream: false,
   });
 
@@ -386,6 +388,50 @@ async function requestRouterStep(
   );
 }
 
+async function parseAssistantResponse(response: Response) {
+  const payload = (await response.json()) as {
+    choices?: Array<{
+      message?: { content?: unknown; tool_calls?: unknown };
+    }>;
+  };
+  const rawMessage = payload.choices?.[0]?.message;
+  const content =
+    typeof rawMessage?.content === "string" ? rawMessage.content : null;
+  const calls = Array.isArray(rawMessage?.tool_calls)
+    ? rawMessage.tool_calls.filter((candidate): candidate is ToolCall => {
+        const value = asObject(candidate);
+        const fn = asObject(value.function);
+        return (
+          typeof value.id === "string" &&
+          value.type === "function" &&
+          typeof fn.name === "string" &&
+          typeof fn.arguments === "string"
+        );
+      })
+    : [];
+  return { content, calls };
+}
+
+async function finalizeWithEvidence(
+  provider: AiProviderConfig,
+  messages: AgentMessage[],
+) {
+  const finalMessages: AgentMessage[] = [
+    ...messages,
+    {
+      role: "system",
+      content:
+        "Cerrá esta solicitud ahora. No hay más herramientas disponibles. Usá únicamente la memoria, el código y los resultados de herramientas ya obtenidos. Respondé en español, de forma concreta: qué revisaste, qué encontraste, dónde está el problema o la mejor hipótesis sustentada, y cuál es el siguiente paso. Si faltó evidencia para afirmar una causa, decilo sin volver a pedir búsquedas ya realizadas.",
+    },
+  ];
+  const response = await requestRouter(provider, finalMessages, { tools: false });
+  const { content } = await parseAssistantResponse(response);
+  if (!content?.trim()) {
+    throw new Error("Prisma investigó el caso pero no pudo sintetizar una respuesta final.");
+  }
+  return content.trim();
+}
+
 export async function runPrismaAgent(input: {
   provider: AiProviderConfig;
   messages: AgentInputMessage[];
@@ -409,7 +455,7 @@ export async function runPrismaAgent(input: {
   for (const memory of [...importantMemories, ...keywordMemories]) {
     memoryById.set(memory.id, memory);
   }
-  const memories = [...memoryById.values()].slice(0, 44);
+  const memories = [...memoryById.values()].slice(0, 36);
 
   const system = [
     "Eres Prisma, agente responsable de conocer, preservar y evolucionar CoreX.",
@@ -418,6 +464,8 @@ export async function runPrismaAgent(input: {
     "No inventes el estado de CoreX: si depende del código actual, usa herramientas de lectura/búsqueda.",
     "PROTOCOLO DE DIAGNÓSTICO DE COREX: 1) identifica proyecto/pantalla/fase a partir de lo que el usuario ya dijo; 2) consulta memoria relevante; 3) busca en corex/ textos visibles, nombres de etapas, rutas, componentes, errores o funciones relacionados; 4) lee los archivos candidatos; 5) formula una hipótesis basada en evidencia; 6) recién entonces pide un dato al usuario si sigue siendo imposible obtenerlo con tus herramientas.",
     "No respondas de entrada con frases genéricas como 'pasame el log', 'decime el archivo', 'compartí la ruta' o 'dame más información' cuando todavía puedas buscar memoria o CoreX por tu cuenta.",
+    "No repitas una herramienta con exactamente los mismos argumentos dentro de una misma solicitud. Si una búsqueda ya se hizo, usa su resultado o cambia la consulta de manera sustancial.",
+    "En un diagnóstico normal, prioriza una búsqueda de memoria, hasta dos búsquedas distintas en CoreX y luego lectura de los archivos candidatos. Cuando tengas evidencia suficiente, deja de investigar y responde.",
     "Si el usuario señala una pantalla o etapa, por ejemplo Diseño, vista previa o Mi Primera App, trata esos nombres como pistas de búsqueda: recupera memoria y busca esos textos o conceptos en el repo antes de preguntar.",
     "Ante HTTP 400 u otros errores de integración, distingue primero si el origen probable es CoreX, Prisma, Router IA o un proveedor externo. No atribuyas automáticamente el fallo a CoreX.",
     "Antes de proponer o aplicar una modificación de CoreX, recupera memoria relevante, inspecciona la estructura necesaria y lee el archivo actual cuando exista.",
@@ -436,32 +484,14 @@ export async function runPrismaAgent(input: {
 
   const messages: AgentMessage[] = [
     { role: "system", content: system },
-    ...input.messages.slice(-40),
+    ...input.messages.slice(-20),
   ];
+  const seenToolSignatures = new Set<string>();
+  const MAX_TOOL_ROUNDS = 6;
 
-  for (let step = 0; step < 8; step += 1) {
-    const response = await requestRouterStep(input.provider, messages);
-
-    const payload = (await response.json()) as {
-      choices?: Array<{
-        message?: { content?: unknown; tool_calls?: unknown };
-      }>;
-    };
-    const rawMessage = payload.choices?.[0]?.message;
-    const content =
-      typeof rawMessage?.content === "string" ? rawMessage.content : null;
-    const calls = Array.isArray(rawMessage?.tool_calls)
-      ? rawMessage.tool_calls.filter((candidate): candidate is ToolCall => {
-          const value = asObject(candidate);
-          const fn = asObject(value.function);
-          return (
-            typeof value.id === "string" &&
-            value.type === "function" &&
-            typeof fn.name === "string" &&
-            typeof fn.arguments === "string"
-          );
-        })
-      : [];
+  for (let step = 0; step < MAX_TOOL_ROUNDS; step += 1) {
+    const response = await requestRouter(input.provider, messages, { tools: true });
+    const { content, calls } = await parseAssistantResponse(response);
 
     if (!calls.length) {
       if (!content?.trim()) {
@@ -471,7 +501,24 @@ export async function runPrismaAgent(input: {
     }
 
     messages.push({ role: "assistant", content, tool_calls: calls });
+    let repeatedToolCall = false;
+
     for (const call of calls.slice(0, 6)) {
+      const signature = `${call.function.name}:${call.function.arguments}`;
+      if (seenToolSignatures.has(signature)) {
+        repeatedToolCall = true;
+        messages.push({
+          role: "tool",
+          tool_call_id: call.id,
+          content: compact({
+            ok: false,
+            error: "Esta misma herramienta con estos mismos argumentos ya fue ejecutada. Usa los resultados existentes y cierra el diagnóstico.",
+          }),
+        });
+        continue;
+      }
+      seenToolSignatures.add(signature);
+
       try {
         const result = await executeTool(call);
         messages.push({
@@ -490,7 +537,11 @@ export async function runPrismaAgent(input: {
         });
       }
     }
+
+    if (repeatedToolCall || step === MAX_TOOL_ROUNDS - 1) {
+      return finalizeWithEvidence(input.provider, messages);
+    }
   }
 
-  throw new Error("Prisma alcanzó el máximo de pasos de herramientas para esta solicitud.");
+  return finalizeWithEvidence(input.provider, messages);
 }

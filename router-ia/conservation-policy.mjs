@@ -9,36 +9,57 @@ const COOLDOWN_MS = Object.freeze({
   rejected: 10 * 60_000,
 });
 
+const VERIFICATION_TIER = Object.freeze({
+  verified: 0,
+  unknown: 1,
+  inconclusive: 2,
+  unsupported: 9,
+  blocked: 9,
+  retired: 9,
+});
+
+const CONSERVATION_TIER = Object.freeze({
+  cloudflare: 0,
+  groq: 1,
+  openrouter: 2,
+  nvidia: 3,
+  custom: 4,
+  openai: 9,
+});
+
 function providerKey(provider) {
   return provider?.id || `${provider?.baseUrl ?? ""}\u0000${provider?.model ?? ""}`;
+}
+
+function normalizeText(value) {
+  return String(value ?? "").trim().toLowerCase();
 }
 
 function verificationStatus(provider, capability) {
   return provider?.modelMetadata?.capabilityVerification?.checks?.[capability]?.status ?? "unknown";
 }
 
-function abundanceScore(provider) {
-  const access = provider?.modelMetadata?.freePlanAccess;
-  if (access === "groq_free_plan") return 36;
-  if (access === "cloudflare_workers_ai_free") return 30;
-  if (access === "nvidia_api_catalog_prototyping") return 18;
-  if (provider?.provider === "openrouter") return 12;
-  if (provider?.provider === "openai") return -20;
-  return 8;
+export function identifyProviderFamily(provider) {
+  const access = normalizeText(provider?.modelMetadata?.freePlanAccess);
+  if (access === "cloudflare_workers_ai_free") return "cloudflare";
+  if (access === "groq_free_plan") return "groq";
+  if (access === "nvidia_api_catalog_prototyping") return "nvidia";
+
+  const providerName = normalizeText(provider?.provider);
+  const name = normalizeText(provider?.name);
+  const baseUrl = normalizeText(provider?.baseUrl);
+  const haystack = `${providerName} ${name} ${baseUrl}`;
+
+  if (haystack.includes("cloudflare") || baseUrl.includes("api.cloudflare.com/client/v4/accounts/")) return "cloudflare";
+  if (haystack.includes("groq") || baseUrl.includes("api.groq.com")) return "groq";
+  if (haystack.includes("openrouter") || baseUrl.includes("openrouter.ai")) return "openrouter";
+  if (haystack.includes("nvidia") || baseUrl.includes("integrate.api.nvidia.com")) return "nvidia";
+  if (providerName === "openai" || name.includes("openai") || baseUrl.includes("api.openai.com")) return "openai";
+  return "custom";
 }
 
-function verificationScore(provider, capability) {
-  const status = verificationStatus(provider, capability);
-  if (status === "verified") return 42;
-  if (["unsupported", "blocked", "retired"].includes(status)) return -1000;
-  if (status === "inconclusive") return 4;
-  return 8;
-}
-
-function capabilityBonus(provider, capability) {
-  if (capability === "vision" && provider?.capabilities?.includes("vision")) return 6;
-  if (capability === "chat" && provider?.capabilities?.includes("fast")) return 4;
-  return 0;
+function priorityValue(provider) {
+  return Math.max(0, Math.min(100, Number(provider?.priority) || 0));
 }
 
 export function isProviderCoolingDown(provider, now = Date.now()) {
@@ -51,18 +72,40 @@ export function isProviderCoolingDown(provider, now = Date.now()) {
   return true;
 }
 
+export function routingRank(provider, capability, now = Date.now()) {
+  const status = verificationStatus(provider, capability);
+  const family = identifyProviderFamily(provider);
+  return {
+    coolingDown: isProviderCoolingDown(provider, now),
+    verificationStatus: status,
+    verificationTier: VERIFICATION_TIER[status] ?? VERIFICATION_TIER.unknown,
+    providerFamily: family,
+    conservationTier: CONSERVATION_TIER[family] ?? CONSERVATION_TIER.custom,
+    priority: priorityValue(provider),
+    fast: capability === "chat" && provider?.capabilities?.includes("fast") ? 1 : 0,
+  };
+}
+
 export function conservationScore(provider, capability, now = Date.now()) {
-  if (isProviderCoolingDown(provider, now)) return -10_000;
-  const priority = Math.max(0, Math.min(100, Number(provider?.priority) || 0));
-  return verificationScore(provider, capability) + abundanceScore(provider) + Math.round(priority / 5) + capabilityBonus(provider, capability);
+  const rank = routingRank(provider, capability, now);
+  if (rank.coolingDown) return -1_000_000;
+  return 1_000_000
+    - rank.verificationTier * 100_000
+    - rank.conservationTier * 10_000
+    + rank.priority * 10
+    + rank.fast;
 }
 
 export function sortByConservation(providers, capability, now = Date.now()) {
   return [...providers].sort((a, b) => {
-    const score = conservationScore(b, capability, now) - conservationScore(a, capability, now);
-    if (score) return score;
-    const priority = (Number(b.priority) || 0) - (Number(a.priority) || 0);
-    if (priority) return priority;
+    const ar = routingRank(a, capability, now);
+    const br = routingRank(b, capability, now);
+
+    if (ar.coolingDown !== br.coolingDown) return ar.coolingDown ? 1 : -1;
+    if (ar.verificationTier !== br.verificationTier) return ar.verificationTier - br.verificationTier;
+    if (ar.conservationTier !== br.conservationTier) return ar.conservationTier - br.conservationTier;
+    if (ar.priority !== br.priority) return br.priority - ar.priority;
+    if (ar.fast !== br.fast) return br.fast - ar.fast;
     return String(a.name ?? a.model ?? "").localeCompare(String(b.name ?? b.model ?? ""));
   });
 }

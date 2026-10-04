@@ -5,7 +5,7 @@ import {
 } from "../lib/ai-provider";
 import { corexToolStatus } from "../lib/corex-tools";
 import { logger } from "../lib/logger";
-import { runPrismaAgent } from "../lib/prisma-agent";
+import { runPrismaCorexAgent } from "../lib/prisma-corex-agent";
 import {
   ensurePrismaMemory,
   listImportantMemories,
@@ -68,6 +68,7 @@ router.get("/prisma/status", async (_req, res) => {
     const memories = await listImportantMemories(["prisma", "corex"], 8);
     res.json({
       ok: true,
+      engine: "corex-focused-v2",
       memory: {
         available: true,
         entriesLoaded: memories.length,
@@ -75,7 +76,7 @@ router.get("/prisma/status", async (_req, res) => {
       },
       corex: corexToolStatus(),
       vision: { acceptsImages: true, mimeTypes: [...IMAGE_MIME_TYPES] },
-      changeMode: "prepare-and-approve",
+      diagnosticMode: "deterministic-memory-search-read-synthesize",
     });
   } catch (error) {
     logger.error({ err: error }, "Prisma status check failed");
@@ -83,6 +84,35 @@ router.get("/prisma/status", async (_req, res) => {
       ok: false,
       memory: { available: false },
       corex: corexToolStatus(),
+    });
+  }
+});
+
+// Temporary deployment smoke test. Remove after live validation.
+router.get("/prisma/smoke-6f31d0", async (_req, res) => {
+  try {
+    await ensurePrismaMemory();
+    const provider = getChatProviderConfig();
+    const casual = await runPrismaCorexAgent({
+      provider,
+      mode: "chat",
+      messages: [{ role: "user", content: "Hola" }],
+    });
+    const diagnostic = await runPrismaCorexAgent({
+      provider,
+      mode: "chat",
+      messages: [{ role: "user", content: "Revisá Mi Primera App/Diseño y ubicá el error de vista previa. No modifiques nada." }],
+    });
+    res.json({
+      ok: true,
+      casual: casual.slice(0, 500),
+      diagnostic: diagnostic.slice(0, 1500),
+    });
+  } catch (error) {
+    logger.error({ err: error }, "Prisma smoke test failed");
+    res.status(500).json({
+      ok: false,
+      error: error instanceof Error ? error.message.slice(0, 800) : "Smoke test failed",
     });
   }
 });
@@ -146,7 +176,7 @@ router.post("/prisma/chat", async (req, res) => {
       });
     }
 
-    const content = await runPrismaAgent({
+    const content = await runPrismaCorexAgent({
       provider,
       messages: agentMessages,
       mode: input.mode,

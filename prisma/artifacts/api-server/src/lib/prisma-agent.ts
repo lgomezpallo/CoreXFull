@@ -292,6 +292,100 @@ function diagnosticKeywords(text: string) {
   )].slice(0, 5);
 }
 
+function wait(ms: number) {
+  return new Promise<void>((resolve) => setTimeout(resolve, ms));
+}
+
+function isTransientRouterStatus(status: number) {
+  return status === 502 || status === 503 || status === 504;
+}
+
+async function routerErrorMessage(response: Response) {
+  const contentType = response.headers.get("content-type") ?? "";
+  const text = (await response.text().catch(() => "")).slice(0, 1200).trim();
+
+  if (/application\/json/i.test(contentType) || text.startsWith("{")) {
+    try {
+      const payload = JSON.parse(text) as {
+        error?: { message?: unknown; code?: unknown } | string;
+        message?: unknown;
+      };
+      const errorValue = payload?.error;
+      const message = typeof errorValue === "object" && errorValue !== null
+        ? (typeof errorValue.message === "string" ? errorValue.message : "")
+        : typeof errorValue === "string"
+          ? errorValue
+          : typeof payload?.message === "string"
+            ? payload.message
+            : "";
+      if (message.trim()) return message.trim().slice(0, 400);
+    } catch {}
+  }
+
+  if (/<!doctype\s+html|<html[\s>]/i.test(text)) return "";
+  return text.replace(/\s+/g, " ").slice(0, 400);
+}
+
+async function requestRouterStep(
+  provider: AiProviderConfig,
+  messages: AgentMessage[],
+) {
+  const endpoint = getProviderEndpoint(provider.baseUrl, "chat/completions");
+  const body = JSON.stringify({
+    model: provider.model,
+    messages,
+    tools: TOOL_DEFINITIONS,
+    tool_choice: "auto",
+    max_tokens: 2200,
+    stream: false,
+  });
+
+  let lastStatus = 502;
+  for (let attempt = 0; attempt < 3; attempt += 1) {
+    let response: Response;
+    try {
+      response = await fetch(endpoint, {
+        method: "POST",
+        headers: getProviderHeaders(provider),
+        body,
+        signal: AbortSignal.timeout(120_000),
+      });
+    } catch (error) {
+      if (attempt < 2) {
+        await wait(900 * (attempt + 1));
+        continue;
+      }
+      const timeout = error instanceof Error && ["TimeoutError", "AbortError"].includes(error.name);
+      throw new Error(timeout
+        ? "Router IA tardó demasiado en responder. Probá de nuevo en unos segundos."
+        : "Prisma no pudo comunicarse con Router IA. Probá de nuevo en unos segundos.");
+    }
+
+    if (response.ok) return response;
+
+    lastStatus = response.status;
+    if (isTransientRouterStatus(response.status) && attempt < 2) {
+      await response.body?.cancel().catch(() => {});
+      await wait(900 * (attempt + 1));
+      continue;
+    }
+
+    const detail = await routerErrorMessage(response);
+    if (isTransientRouterStatus(response.status)) {
+      throw new Error(
+        `Router IA está temporalmente no disponible (HTTP ${response.status}). Probá de nuevo en unos segundos.`,
+      );
+    }
+    throw new Error(
+      `Router IA no pudo completar el paso de Prisma (HTTP ${response.status})${detail ? `: ${detail}` : "."}`,
+    );
+  }
+
+  throw new Error(
+    `Router IA está temporalmente no disponible (HTTP ${lastStatus}). Probá de nuevo en unos segundos.`,
+  );
+}
+
 export async function runPrismaAgent(input: {
   provider: AiProviderConfig;
   messages: AgentInputMessage[];
@@ -346,29 +440,7 @@ export async function runPrismaAgent(input: {
   ];
 
   for (let step = 0; step < 8; step += 1) {
-    const response = await fetch(
-      getProviderEndpoint(input.provider.baseUrl, "chat/completions"),
-      {
-        method: "POST",
-        headers: getProviderHeaders(input.provider),
-        body: JSON.stringify({
-          model: input.provider.model,
-          messages,
-          tools: TOOL_DEFINITIONS,
-          tool_choice: "auto",
-          max_tokens: 2200,
-          stream: false,
-        }),
-        signal: AbortSignal.timeout(120_000),
-      },
-    );
-
-    if (!response.ok) {
-      const detail = (await response.text().catch(() => "")).slice(0, 500);
-      throw new Error(
-        `Router IA no pudo completar el paso de Prisma (HTTP ${response.status})${detail ? `: ${detail}` : ""}`,
-      );
-    }
+    const response = await requestRouterStep(input.provider, messages);
 
     const payload = (await response.json()) as {
       choices?: Array<{

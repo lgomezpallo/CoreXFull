@@ -55,14 +55,33 @@ function classifyFailure(responseStatus) {
   return { transient: false, kind: null, status: responseStatus, code: "provider_request_rejected" };
 }
 
-function shouldTryNextProvider({ capability, failure, responseStatus }) {
-  if (failure.transient) return true;
-  if (capability !== "vision") return false;
+function hasToolRequest(upstreamBody) {
+  return Array.isArray(upstreamBody?.tools) && upstreamBody.tools.length > 0;
+}
 
-  // Vision providers are not fully payload-compatible with each other. A 4xx here
-  // commonly means that this particular model rejected the image/message shape,
-  // not that the user's request is invalid for every vision model.
-  return [400, 404, 405, 415, 422].includes(responseStatus);
+function shouldTryNextProvider({ capability, failure, responseStatus, toolRequest }) {
+  if (failure.transient) return true;
+
+  const payloadCompatibilityStatus = [400, 404, 405, 415, 422].includes(responseStatus);
+
+  // Vision providers are not fully payload-compatible with each other.
+  if (capability === "vision" && payloadCompatibilityStatus) return true;
+
+  // Tool calling is also not uniformly supported even among otherwise valid chat models.
+  // Preserve the normal-chat conservation rule, but allow Prisma/agent requests to try
+  // the next provider when the current model rejects the tools payload.
+  if (toolRequest && payloadCompatibilityStatus) return true;
+
+  return false;
+}
+
+function sanitizeDiagnostic(text) {
+  return String(text ?? "")
+    .replace(/Bearer\s+[A-Za-z0-9._~+\/-]+/gi, "Bearer [redacted]")
+    .replace(/[A-Za-z0-9_-]{40,}/g, "[redacted]")
+    .replace(/\s+/g, " ")
+    .trim()
+    .slice(0, 320);
 }
 
 export async function requestChatWithFallback({
@@ -77,6 +96,7 @@ export async function requestChatWithFallback({
     messages,
     requestedModel,
   });
+  const toolRequest = hasToolRequest(upstreamBody);
 
   if (!candidates.length) {
     return {
@@ -112,6 +132,13 @@ export async function requestChatWithFallback({
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
       recordProviderFailure(provider, timeout ? "timeout" : "unreachable");
+      console.warn("ROUTER_PROVIDER_ATTEMPT_FAILED", {
+        provider: provider?.name ?? provider?.provider ?? "unknown",
+        model: provider?.model ?? "unknown",
+        capability,
+        toolRequest,
+        kind: timeout ? "timeout" : "unreachable",
+      });
       lastFailure = {
         status: timeout ? 504 : 502,
         code: timeout ? "provider_timeout" : "provider_unreachable",
@@ -123,12 +150,21 @@ export async function requestChatWithFallback({
     if (!response.ok) {
       const responseStatus = response.status;
       const failure = classifyFailure(responseStatus);
-      await response.body?.cancel().catch(() => {});
+      const diagnostic = sanitizeDiagnostic(await response.text().catch(() => ""));
       if (failure.kind) recordProviderFailure(provider, failure.kind);
       lastFailure = { status: failure.status, code: failure.code };
 
+      console.warn("ROUTER_PROVIDER_ATTEMPT_FAILED", {
+        provider: provider?.name ?? provider?.provider ?? "unknown",
+        model: provider?.model ?? "unknown",
+        capability,
+        toolRequest,
+        status: responseStatus,
+        diagnostic,
+      });
+
       if (requestedModel && requestedModel !== "router-ia-auto") break;
-      if (!shouldTryNextProvider({ capability, failure, responseStatus })) break;
+      if (!shouldTryNextProvider({ capability, failure, responseStatus, toolRequest })) break;
       continue;
     }
 

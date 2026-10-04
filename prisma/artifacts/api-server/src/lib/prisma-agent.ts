@@ -468,6 +468,22 @@ export async function runPrismaAgent(input: {
   const latestUserText = [...input.messages]
     .reverse()
     .find((message) => message.role === "user")?.content ?? "";
+  const isCasual = CASUAL_RE.test(latestUserText.trim());
+
+  if (isCasual) {
+    const casualMessages: AgentMessage[] = [
+      {
+        role: "system",
+        content: "Sos Prisma. Respondé en español, de forma natural y breve. Esta es conversación casual: no uses, menciones ni simules herramientas, proyectos, repositorios, diagnósticos o memoria técnica.",
+      },
+      { role: "user", content: latestUserText.slice(0, 1000) },
+    ];
+    const response = await requestRouter(input.provider, casualMessages, { tools: false });
+    const { content } = await parseAssistantResponse(response);
+    if (!content?.trim()) throw new Error("Prisma no devolvió una respuesta.");
+    return content.trim();
+  }
+
   const useTools = shouldUseTools(input.messages, latestUserText);
 
   const importantMemories = await listImportantMemories(
@@ -493,12 +509,12 @@ export async function runPrismaAgent(input: {
     const simpleSystem = [
       "Sos Prisma. Conversá en español, de forma directa y natural.",
       "Conservá continuidad con el usuario usando el contexto breve disponible.",
-      "No actives herramientas de CoreX para saludos, charla común o mensajes que no requieran inspeccionar/modificar el proyecto.",
+      "No actives herramientas de CoreX para mensajes que no requieran inspeccionar o modificar el proyecto.",
       `CONTEXTO PERSISTENTE BREVE:\n${memoryBlock(memories)}`,
     ].join("\n\n");
     const simpleMessages: AgentMessage[] = [
       { role: "system", content: simpleSystem },
-      ...sanitizeHistory(input.messages, 8),
+      ...sanitizeHistory(input.messages, 6),
     ];
     const response = await requestRouter(input.provider, simpleMessages, { tools: false });
     const { content } = await parseAssistantResponse(response);

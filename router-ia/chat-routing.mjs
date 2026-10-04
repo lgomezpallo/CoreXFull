@@ -1,7 +1,7 @@
 import {
   recordProviderFailure,
   recordProviderSuccess,
-  sortByConservation,
+  sortByCapabilityPriority,
 } from "./conservation-policy.mjs";
 
 function hasImageContent(messages) {
@@ -49,7 +49,7 @@ export function getChatCandidates(providers, { messages, requestedModel }) {
     return { capability, candidates: explicit ? [explicit] : [] };
   }
 
-  return { capability, candidates: sortByConservation(eligible, capability) };
+  return { capability, candidates: sortByCapabilityPriority(eligible, capability) };
 }
 
 function classifyFailure(responseStatus) {
@@ -78,16 +78,8 @@ function shouldTryNextProvider({ capability, failure, responseStatus, toolReques
 
   const payloadCompatibilityStatus = [400, 404, 405, 415, 422].includes(responseStatus);
 
-  // Some models may try to emit a tool call even when the request deliberately has no tools.
-  // That is model-specific behavior and should not break an otherwise simple chat request.
   if (plainChatToolMismatch(responseStatus, diagnostic, toolRequest)) return true;
-
-  // Vision providers are not fully payload-compatible with each other.
   if (capability === "vision" && payloadCompatibilityStatus) return true;
-
-  // Tool calling is not uniformly supported even among otherwise valid chat models.
-  // 413 can also be model-specific (small TPM/context allowance), so agent requests
-  // should keep moving to the next conservation-ranked candidate.
   if (toolRequest && (payloadCompatibilityStatus || responseStatus === 413)) return true;
 
   return false;
@@ -105,9 +97,7 @@ function sanitizeDiagnostic(text) {
 function providerChatUrl(provider) {
   const base = provider.baseUrl.replace(/\/+$/, "");
   const identity = `${provider?.name ?? ""} ${provider?.provider ?? ""}`.toLowerCase();
-  if (identity.includes("cloudflare")) {
-    return `${base}/v1/chat/completions`;
-  }
+  if (identity.includes("cloudflare")) return `${base}/v1/chat/completions`;
   return `${base}/chat/completions`;
 }
 
@@ -119,10 +109,7 @@ export async function requestChatWithFallback({
   fetchImpl = globalThis.fetch,
   timeoutMs = 30_000,
 }) {
-  const { capability, candidates } = getChatCandidates(providers, {
-    messages,
-    requestedModel,
-  });
+  const { capability, candidates } = getChatCandidates(providers, { messages, requestedModel });
   const toolRequest = hasToolRequest(upstreamBody);
 
   if (!candidates.length) {
@@ -142,20 +129,17 @@ export async function requestChatWithFallback({
   for (const provider of candidates) {
     let response;
     try {
-      response = await fetchImpl(
-        providerChatUrl(provider),
-        {
-          method: "POST",
-          headers: {
-            accept: "application/json",
-            authorization: `Bearer ${provider.apiKey}`,
-            "content-type": "application/json",
-          },
-          body: JSON.stringify({ ...upstreamBody, model: provider.model }),
-          redirect: "error",
-          signal: AbortSignal.timeout(timeoutMs),
+      response = await fetchImpl(providerChatUrl(provider), {
+        method: "POST",
+        headers: {
+          accept: "application/json",
+          authorization: `Bearer ${provider.apiKey}`,
+          "content-type": "application/json",
         },
-      );
+        body: JSON.stringify({ ...upstreamBody, model: provider.model }),
+        redirect: "error",
+        signal: AbortSignal.timeout(timeoutMs),
+      });
     } catch (error) {
       const timeout = error?.name === "TimeoutError" || error?.name === "AbortError";
       recordProviderFailure(provider, timeout ? "timeout" : "unreachable");
@@ -166,10 +150,7 @@ export async function requestChatWithFallback({
         toolRequest,
         kind: timeout ? "timeout" : "unreachable",
       });
-      lastFailure = {
-        status: timeout ? 504 : 502,
-        code: timeout ? "provider_timeout" : "provider_unreachable",
-      };
+      lastFailure = { status: timeout ? 504 : 502, code: timeout ? "provider_timeout" : "provider_unreachable" };
       if (requestedModel && requestedModel !== "router-ia-auto") break;
       continue;
     }

@@ -77,6 +77,8 @@ async function runOperationalSelfTest() {
 }
 
 async function runAgentSmokeTest() {
+  if (process.env.PRISMA_STARTUP_AGENT_SMOKE?.trim() !== "1") return;
+
   try {
     const provider = getChatProviderConfig();
     const casual = await runPrismaCorexAgent({

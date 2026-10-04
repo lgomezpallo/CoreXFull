@@ -139,6 +139,51 @@ test("normal chat still stops after a semantic 400", async (t) => {
   assert.equal(calls[0].body.model, "first-model");
 });
 
+test("tool-calling chat tries the next provider after a 400 payload rejection", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "tool-a", model: "tool-a-model", priority: 90, capabilities: ["chat"] }),
+    provider({ id: "tool-b", model: "tool-b-model", priority: 50, capabilities: ["chat"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    if (url.startsWith("https://tool-a.example")) {
+      return new Response("tools not supported", { status: 400 });
+    }
+    return new Response(JSON.stringify({
+      id: "tool-fallback-ok",
+      choices: [{ index: 0, message: { role: "assistant", content: "segunda opción funcionó" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: {
+      authorization: `Bearer ${APP_TOKEN}`,
+      "content-type": "application/json",
+    },
+    body: JSON.stringify({
+      model: "router-ia-auto",
+      messages: [{ role: "user", content: "diagnosticá CoreX" }],
+      tools: [{
+        type: "function",
+        function: {
+          name: "corex_search",
+          description: "Busca en CoreX",
+          parameters: { type: "object", properties: { query: { type: "string" } }, required: ["query"] },
+        },
+      }],
+      tool_choice: "auto",
+    }),
+  });
+  const body = await response.json();
+
+  assert.equal(response.status, 200);
+  assert.equal(body.router.capability, "chat");
+  assert.equal(body.choices[0].message.content, "segunda opción funcionó");
+  assert.deepEqual(calls.map((call) => call.body.model), ["tool-a-model", "tool-b-model"]);
+});
+
 test("vision tries the next vision provider after a 400 payload rejection", async (t) => {
   const calls = [];
   const providers = [

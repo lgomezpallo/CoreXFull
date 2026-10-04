@@ -18,50 +18,36 @@ const VERIFICATION_TIER = Object.freeze({
   retired: 9,
 });
 
-// Established conservation order: spend Groq first, then Cloudflare,
-// keep NVIDIA more protected, and leave OpenRouter as broad fallback.
-const CONSERVATION_TIER = Object.freeze({
-  groq: 0,
-  cloudflare: 1,
-  nvidia: 2,
-  openrouter: 3,
-  custom: 4,
-  openai: 9,
-});
+const SPECIALIZED_CAPABILITIES = new Set([
+  "vision",
+  "coding",
+  "reasoning",
+  "document",
+  "transcription",
+  "speech",
+  "image_generation",
+  "image_editing",
+  "long_context",
+]);
 
 function providerKey(provider) {
   return provider?.id || `${provider?.baseUrl ?? ""}\u0000${provider?.model ?? ""}`;
-}
-
-function normalizeText(value) {
-  return String(value ?? "").trim().toLowerCase();
 }
 
 function verificationStatus(provider, capability) {
   return provider?.modelMetadata?.capabilityVerification?.checks?.[capability]?.status ?? "unknown";
 }
 
-export function identifyProviderFamily(provider) {
-  const access = normalizeText(provider?.modelMetadata?.freePlanAccess);
-  if (access === "cloudflare_workers_ai_free") return "cloudflare";
-  if (access === "groq_free_plan") return "groq";
-  if (access === "nvidia_api_catalog_prototyping") return "nvidia";
-
-  const providerName = normalizeText(provider?.provider);
-  const name = normalizeText(provider?.name);
-  const baseUrl = normalizeText(provider?.baseUrl);
-  const haystack = `${providerName} ${name} ${baseUrl}`;
-
-  if (haystack.includes("cloudflare") || baseUrl.includes("api.cloudflare.com/client/v4/accounts/")) return "cloudflare";
-  if (haystack.includes("groq") || baseUrl.includes("api.groq.com")) return "groq";
-  if (haystack.includes("openrouter") || baseUrl.includes("openrouter.ai")) return "openrouter";
-  if (haystack.includes("nvidia") || baseUrl.includes("integrate.api.nvidia.com")) return "nvidia";
-  if (providerName === "openai" || name.includes("openai") || baseUrl.includes("api.openai.com")) return "openai";
-  return "custom";
-}
-
 function priorityValue(provider) {
   return Math.max(0, Math.min(100, Number(provider?.priority) || 0));
+}
+
+function specializationPenalty(provider, capability) {
+  const capabilities = Array.isArray(provider?.capabilities) ? provider.capabilities : [];
+  return capabilities.reduce((count, item) => {
+    if (item === capability || item === "chat" || item === "fast") return count;
+    return count + (SPECIALIZED_CAPABILITIES.has(item) ? 1 : 0);
+  }, 0);
 }
 
 export function isProviderCoolingDown(provider, now = Date.now()) {
@@ -76,39 +62,27 @@ export function isProviderCoolingDown(provider, now = Date.now()) {
 
 export function routingRank(provider, capability, now = Date.now()) {
   const status = verificationStatus(provider, capability);
-  const family = identifyProviderFamily(provider);
   return {
     coolingDown: isProviderCoolingDown(provider, now),
     verificationStatus: status,
     verificationTier: VERIFICATION_TIER[status] ?? VERIFICATION_TIER.unknown,
-    providerFamily: family,
-    conservationTier: CONSERVATION_TIER[family] ?? CONSERVATION_TIER.custom,
-    priority: priorityValue(provider),
+    specializationPenalty: specializationPenalty(provider, capability),
+    capabilityPriority: priorityValue(provider),
     fast: capability === "chat" && provider?.capabilities?.includes("fast") ? 1 : 0,
   };
 }
 
-export function conservationScore(provider, capability, now = Date.now()) {
-  const rank = routingRank(provider, capability, now);
-  if (rank.coolingDown) return -1_000_000;
-  return 1_000_000
-    - rank.verificationTier * 100_000
-    - rank.conservationTier * 10_000
-    + rank.priority * 10
-    + rank.fast;
-}
-
-export function sortByConservation(providers, capability, now = Date.now()) {
+export function sortByCapabilityPriority(providers, capability, now = Date.now()) {
   return [...providers].sort((a, b) => {
     const ar = routingRank(a, capability, now);
     const br = routingRank(b, capability, now);
 
     if (ar.coolingDown !== br.coolingDown) return ar.coolingDown ? 1 : -1;
     if (ar.verificationTier !== br.verificationTier) return ar.verificationTier - br.verificationTier;
-    if (ar.conservationTier !== br.conservationTier) return ar.conservationTier - br.conservationTier;
-    if (ar.priority !== br.priority) return br.priority - ar.priority;
+    if (ar.specializationPenalty !== br.specializationPenalty) return ar.specializationPenalty - br.specializationPenalty;
+    if (ar.capabilityPriority !== br.capabilityPriority) return br.capabilityPriority - ar.capabilityPriority;
     if (ar.fast !== br.fast) return br.fast - ar.fast;
-    return String(a.name ?? a.model ?? "").localeCompare(String(b.name ?? b.model ?? ""));
+    return String(a.model ?? a.name ?? "").localeCompare(String(b.model ?? b.name ?? ""));
   });
 }
 

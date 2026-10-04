@@ -2,6 +2,7 @@ import { Router, type IRouter } from "express";
 import {
   AiProviderConfigurationError,
   getChatProviderConfig,
+  getImageProviderConfig,
 } from "../lib/ai-provider";
 import { corexToolStatus } from "../lib/corex-tools";
 import { logger } from "../lib/logger";
@@ -120,8 +121,9 @@ router.post("/prisma/chat", async (req, res) => {
       : input.messages[latestUserIndex]?.content ?? "";
 
     if (input.image && latestUserIndex !== undefined) {
+      const visionProvider = getImageProviderConfig();
       const visionAnalysis = await analyzePrismaImage(
-        provider,
+        visionProvider,
         input.image,
         durableUserContent,
       );

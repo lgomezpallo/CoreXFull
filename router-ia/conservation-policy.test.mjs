@@ -2,94 +2,71 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import {
   clearConservationState,
-  conservationScore,
-  identifyProviderFamily,
   isProviderCoolingDown,
   recordProviderFailure,
   recordProviderSuccess,
   routingRank,
-  sortByConservation,
+  sortByCapabilityPriority,
 } from "./conservation-policy.mjs";
 
-function provider({ id, provider = "custom", name = id, baseUrl = `https://${id}.example/v1`, priority = 50, freePlanAccess, status = "unknown", capability = "chat", capabilities = [capability] }) {
+function provider({ id, name = id, model = id, priority = 50, status = "unknown", capability = "chat", capabilities = [capability] }) {
   return {
     id,
-    provider,
     name,
-    baseUrl,
+    model,
     priority,
     capabilities,
     modelMetadata: {
-      ...(freePlanAccess ? { freePlanAccess } : {}),
       capabilityVerification: { checks: { [capability]: { status } } },
     },
   };
 }
 
-test("provider family is identified even when imported as custom", () => {
-  assert.equal(identifyProviderFamily(provider({ id: "cf", name: "Cloudflare Workers AI", baseUrl: "https://api.cloudflare.com/client/v4/accounts/x/ai/v1" })), "cloudflare");
-  assert.equal(identifyProviderFamily(provider({ id: "g", name: "Groq", baseUrl: "https://api.groq.com/openai/v1" })), "groq");
-  assert.equal(identifyProviderFamily(provider({ id: "or", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1" })), "openrouter");
-  assert.equal(identifyProviderFamily(provider({ id: "nv", name: "NVIDIA NIM", baseUrl: "https://integrate.api.nvidia.com/v1" })), "nvidia");
+test("provider identity does not affect ordering", () => {
+  clearConservationState();
+  const groq = provider({ id: "groq", name: "Groq", model: "g", priority: 20, status: "verified" });
+  const cloudflare = provider({ id: "cloudflare", name: "Cloudflare Workers AI", model: "c", priority: 80, status: "verified" });
+  const ordered = sortByCapabilityPriority([groq, cloudflare], "chat", 1_000);
+  assert.deepEqual(ordered.map((item) => item.id), ["cloudflare", "groq"]);
 });
 
-test("established conservation order is Groq then Cloudflare then NVIDIA then OpenRouter", () => {
+test("verified capability outranks unverified capability", () => {
   clearConservationState();
-  const groq = provider({ id: "groq", freePlanAccess: "groq_free_plan", status: "verified", priority: 1 });
-  const cloudflare = provider({ id: "cloudflare", freePlanAccess: "cloudflare_workers_ai_free", status: "verified", priority: 100 });
-  const nvidia = provider({ id: "nvidia", freePlanAccess: "nvidia_api_catalog_prototyping", status: "verified", priority: 100 });
-  const openrouter = provider({ id: "openrouter", name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", status: "verified", priority: 100 });
-  assert.deepEqual(
-    sortByConservation([openrouter, nvidia, cloudflare, groq], "chat", 1_000).map((item) => item.id),
-    ["groq", "cloudflare", "nvidia", "openrouter"],
-  );
-  assert.ok(conservationScore(groq, "chat", 1_000) > conservationScore(cloudflare, "chat", 1_000));
+  const verified = provider({ id: "verified", priority: 10, status: "verified" });
+  const unknown = provider({ id: "unknown", priority: 100, status: "unknown" });
+  assert.equal(sortByCapabilityPriority([unknown, verified], "chat", 1_000)[0].id, "verified");
 });
 
-test("provider family conservation outranks manual priority", () => {
+test("least specialized sufficient model is preferred", () => {
   clearConservationState();
-  const groq = provider({ id: "groq", priority: 1, freePlanAccess: "groq_free_plan", status: "verified" });
-  const cloudflare = provider({ id: "cloudflare", priority: 100, freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
-  assert.equal(sortByConservation([cloudflare, groq], "chat", 1_000)[0].id, "groq");
+  const plainChat = provider({ id: "plain", priority: 40, status: "verified", capabilities: ["chat"] });
+  const specialist = provider({ id: "specialist", priority: 100, status: "verified", capabilities: ["chat", "vision", "long_context", "reasoning"] });
+  assert.equal(sortByCapabilityPriority([specialist, plainChat], "chat", 1_000)[0].id, "plain");
 });
 
-test("verification outranks conservation tier", () => {
+test("capability priority breaks ties after verification and specialization", () => {
   clearConservationState();
-  const verifiedNvidia = provider({ id: "nv", freePlanAccess: "nvidia_api_catalog_prototyping", status: "verified" });
-  const inconclusiveGroq = provider({ id: "g", freePlanAccess: "groq_free_plan", status: "inconclusive" });
-  assert.equal(sortByConservation([inconclusiveGroq, verifiedNvidia], "chat", 1_000)[0].id, "nv");
+  const low = provider({ id: "low", priority: 10, status: "verified", capabilities: ["chat"] });
+  const high = provider({ id: "high", priority: 90, status: "verified", capabilities: ["chat"] });
+  assert.equal(sortByCapabilityPriority([low, high], "chat", 1_000)[0].id, "high");
 });
 
-test("manual priority is a tie-breaker only inside the same tiers", () => {
+test("vision compares only vision capability and not provider", () => {
   clearConservationState();
-  const low = provider({ id: "low", priority: 10, freePlanAccess: "groq_free_plan", status: "verified" });
-  const high = provider({ id: "high", priority: 90, freePlanAccess: "groq_free_plan", status: "verified" });
-  assert.equal(sortByConservation([low, high], "chat", 1_000)[0].id, "high");
+  const a = provider({ id: "a", name: "Groq", capability: "vision", capabilities: ["chat", "vision"], priority: 20, status: "verified" });
+  const b = provider({ id: "b", name: "OpenRouter", capability: "vision", capabilities: ["chat", "vision"], priority: 80, status: "verified" });
+  const ordered = sortByCapabilityPriority([a, b], "vision", 2_000);
+  assert.equal(ordered[0].id, "b");
+  assert.equal(routingRank(ordered[0], "vision", 2_000).verificationStatus, "verified");
 });
 
-test("unsupported verification is last even with high priority", () => {
+test("cooldown only removes a failing execution path temporarily", () => {
   clearConservationState();
-  const unsupported = provider({ id: "bad", priority: 100, freePlanAccess: "groq_free_plan", status: "unsupported" });
-  const verified = provider({ id: "good", priority: 1, name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", status: "verified" });
-  assert.equal(sortByConservation([unsupported, verified], "chat", 2_000)[0].id, "good");
-});
-
-test("vision uses the same verified-first conservation hierarchy", () => {
-  clearConservationState();
-  const cfVision = provider({ id: "cf-vision", capability: "vision", capabilities: ["chat", "vision"], freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
-  const orVision = provider({ id: "or-vision", capability: "vision", capabilities: ["chat", "vision"], name: "OpenRouter", baseUrl: "https://openrouter.ai/api/v1", priority: 100, status: "verified" });
-  const ordered = sortByConservation([orVision, cfVision], "vision", 3_000);
-  assert.equal(ordered[0].id, "cf-vision");
-  assert.equal(routingRank(ordered[0], "vision", 3_000).verificationStatus, "verified");
-});
-
-test("quota failure puts even the most spendable provider in cooldown", () => {
-  clearConservationState();
-  const groq = provider({ id: "quota", freePlanAccess: "groq_free_plan", status: "verified" });
-  const cloudflare = provider({ id: "cf", freePlanAccess: "cloudflare_workers_ai_free", status: "verified" });
-  recordProviderFailure(groq, "quota", 10_000);
-  assert.equal(isProviderCoolingDown(groq, 10_001), true);
-  assert.equal(sortByConservation([groq, cloudflare], "chat", 10_001)[0].id, "cf");
-  recordProviderSuccess(groq);
-  assert.equal(isProviderCoolingDown(groq, 10_001), false);
+  const first = provider({ id: "first", priority: 100, status: "verified" });
+  const second = provider({ id: "second", priority: 50, status: "verified" });
+  recordProviderFailure(first, "quota", 10_000);
+  assert.equal(isProviderCoolingDown(first, 10_001), true);
+  assert.equal(sortByCapabilityPriority([first, second], "chat", 10_001)[0].id, "second");
+  recordProviderSuccess(first);
+  assert.equal(isProviderCoolingDown(first, 10_001), false);
 });

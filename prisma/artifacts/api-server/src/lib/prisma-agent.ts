@@ -42,7 +42,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "memory_search",
-      description: "Busca memoria persistente de Prisma sobre arquitectura, decisiones, errores y cambios previos.",
+      description: "Busca memoria persistente de Prisma sobre arquitectura, proyectos, pantallas, decisiones, errores y cambios previos. Úsala antes de pedir al usuario contexto que Prisma pueda recordar.",
       parameters: {
         type: "object",
         properties: {
@@ -58,7 +58,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "memory_remember",
-      description: "Guarda algo que Prisma deba conservar entre sesiones.",
+      description: "Guarda algo que Prisma deba conservar entre sesiones. Prioriza proyectos, fases, errores, causas, decisiones e invariantes que puedan afectar trabajo futuro.",
       parameters: {
         type: "object",
         properties: {
@@ -106,7 +106,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_list_tree",
-      description: "Lista por SSH la estructura de archivos dentro de corex/.",
+      description: "Lista por SSH la estructura de archivos dentro de corex/. Úsala para orientarte antes de pedir al usuario una ruta o archivo.",
       parameters: {
         type: "object",
         properties: {
@@ -121,7 +121,7 @@ const TOOL_DEFINITIONS = [
     type: "function",
     function: {
       name: "corex_search",
-      description: "Busca por SSH archivos/código dentro de corex/ antes de asumir dónde vive una función.",
+      description: "Busca por SSH archivos/código dentro de corex/. Ante un error o una pantalla nombrada por el usuario, úsala para localizar textos visibles, nombres de etapas, rutas, componentes o funciones antes de pedirle al usuario que señale el archivo.",
       parameters: {
         type: "object",
         properties: { query: { type: "string" } },
@@ -275,31 +275,69 @@ function compact(value: unknown) {
     : text;
 }
 
+function diagnosticKeywords(text: string) {
+  const ignored = new Set([
+    "para", "como", "este", "esta", "esto", "esas", "esos", "quiero",
+    "favor", "error", "errores", "donde", "sobre", "tiene", "tenes", "tenés",
+    "porque", "pero", "entonces", "podés", "podes", "leer", "leé", "conversaciones",
+  ]);
+  return [...new Set(
+    text
+      .toLowerCase()
+      .normalize("NFD")
+      .replace(/[\u0300-\u036f]/g, "")
+      .replace(/[^a-z0-9@._-]+/g, " ")
+      .split(/\s+/)
+      .filter((word) => word.length >= 4 && !ignored.has(word)),
+  )].slice(0, 5);
+}
+
 export async function runPrismaAgent(input: {
   provider: AiProviderConfig;
   messages: AgentInputMessage[];
   mode: "chat" | "document";
 }) {
-  const memories = await listImportantMemories(
+  const importantMemories = await listImportantMemories(
     ["global", "prisma", "corex"],
-    28,
+    32,
   );
+  const latestUserText = [...input.messages]
+    .reverse()
+    .find((message) => message.role === "user")?.content ?? "";
+  const keywordMemories = (
+    await Promise.all(
+      diagnosticKeywords(latestUserText).map((keyword) =>
+        searchPrismaMemory(keyword, undefined, 8).catch(() => []),
+      ),
+    )
+  ).flat();
+  const memoryById = new Map<number, (typeof importantMemories)[number]>();
+  for (const memory of [...importantMemories, ...keywordMemories]) {
+    memoryById.set(memory.id, memory);
+  }
+  const memories = [...memoryById.values()].slice(0, 44);
 
   const system = [
     "Eres Prisma, agente responsable de conocer, preservar y evolucionar CoreX.",
-    "Responde en español por defecto y de forma directa.",
-    "Tu memoria persistente es parte de tu contexto operativo. Consulta memoria cuando una decisión anterior pueda afectar la respuesta.",
+    "Responde en español por defecto y de forma directa. Tu objetivo no es devolver trabajo al usuario sino resolver con el contexto y las herramientas disponibles.",
+    "Tu memoria persistente es contexto operativo. Cuando el usuario nombre un proyecto, pantalla, etapa, error o decisión previa, úsala antes de pedir que te repita información.",
     "No inventes el estado de CoreX: si depende del código actual, usa herramientas de lectura/búsqueda.",
+    "PROTOCOLO DE DIAGNÓSTICO DE COREX: 1) identifica proyecto/pantalla/fase a partir de lo que el usuario ya dijo; 2) consulta memoria relevante; 3) busca en corex/ textos visibles, nombres de etapas, rutas, componentes, errores o funciones relacionados; 4) lee los archivos candidatos; 5) formula una hipótesis basada en evidencia; 6) recién entonces pide un dato al usuario si sigue siendo imposible obtenerlo con tus herramientas.",
+    "No respondas de entrada con frases genéricas como 'pasame el log', 'decime el archivo', 'compartí la ruta' o 'dame más información' cuando todavía puedas buscar memoria o CoreX por tu cuenta.",
+    "Si el usuario señala una pantalla o etapa, por ejemplo Diseño, vista previa o Mi Primera App, trata esos nombres como pistas de búsqueda: recupera memoria y busca esos textos o conceptos en el repo antes de preguntar.",
+    "Ante HTTP 400 u otros errores de integración, distingue primero si el origen probable es CoreX, Prisma, Router IA o un proveedor externo. No atribuyas automáticamente el fallo a CoreX.",
     "Antes de proponer o aplicar una modificación de CoreX, recupera memoria relevante, inspecciona la estructura necesaria y lee el archivo actual cuando exista.",
     "Preserva el principio fundamental de CoreX: construir desglosando operaciones pequeñas, sin convertir el trabajo en una única tarea gigante de programación.",
     "No escribas en CoreX por iniciativa propia. Sólo usa corex_write_file o corex_create_file cuando el pedido actual del usuario exija explícitamente aplicar, modificar, corregir, arreglar o implementar algo en CoreX.",
     "Para modificar un archivo existente debes haberlo leído en esta misma solicitud y usar exactamente el SHA devuelto por corex_read_file. Si el SHA cambió, relee y reevalúa antes de intentar otra vez.",
     "Si el usuario sólo consulta, pide diagnóstico, opinión o propuesta, limita tu acción a leer, buscar, recordar y, si corresponde, corex_prepare_change; no escribas.",
-    "Después de un cambio aplicado correctamente, conserva en memoria la decisión o motivo arquitectónico relevante si puede afectar trabajo futuro.",
+    "Cuando el usuario identifique un proyecto, fase, causa de error, decisión arquitectónica o corrección importante que pueda afectar trabajo futuro, guárdalo con memory_remember. No dependas sólo del historial visible.",
+    "Después de un cambio aplicado correctamente, conserva en memoria el cambio, el motivo y cualquier invariante arquitectónica relevante.",
+    "Cuando diagnostiques, comunica de forma breve: qué entendiste, dónde buscaste, qué encontraste y cuál es el siguiente paso. Evita listados de posibilidades sin investigar.",
     input.mode === "document"
       ? "Si el usuario pide un documento, redacta el documento completo."
       : "Mantén una conversación práctica y orientada a resolver.",
-    `MEMORIA PERSISTENTE:\n${memoryBlock(memories)}`,
+    `MEMORIA PERSISTENTE Y CONTEXTO RECUPERADO:\n${memoryBlock(memories)}`,
   ].join("\n\n");
 
   const messages: AgentMessage[] = [
@@ -307,7 +345,7 @@ export async function runPrismaAgent(input: {
     ...input.messages.slice(-40),
   ];
 
-  for (let step = 0; step < 6; step += 1) {
+  for (let step = 0; step < 8; step += 1) {
     const response = await fetch(
       getProviderEndpoint(input.provider.baseUrl, "chat/completions"),
       {
@@ -318,7 +356,7 @@ export async function runPrismaAgent(input: {
           messages,
           tools: TOOL_DEFINITIONS,
           tool_choice: "auto",
-          max_tokens: 1800,
+          max_tokens: 2200,
           stream: false,
         }),
         signal: AbortSignal.timeout(120_000),

@@ -1,11 +1,12 @@
 import app from "./app";
-import { getChatProviderConfig } from "./lib/ai-provider";
+import { getChatProviderConfig, getImageProviderConfig } from "./lib/ai-provider";
 import { runPrismaCorexAgent } from "./lib/prisma-corex-agent";
 import { runPrismaAgentMutationSmoke } from "./lib/prisma-agent-mutation-smoke";
 import { corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
 import { corexListTree } from "./lib/corex-ssh-read";
 import { logger } from "./lib/logger";
 import { listImportantMemories } from "./lib/prisma-memory";
+import { analyzePrismaImage } from "./lib/prisma-vision";
 import { runPrismaWriteSmoke } from "./lib/prisma-write-smoke";
 
 const rawPort = process.env["PORT"];
@@ -120,6 +121,35 @@ async function runAgentSmokeTest() {
   }
 }
 
+async function runVisionSmokeTest() {
+  if (process.env.PRISMA_STARTUP_VISION_SMOKE?.trim() !== "1") return;
+
+  const red16Png = "iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAIAAACQkWg2AAAAF0lEQVR4nGP8z0AaYCJR/aiGUQ1DSAMAJwMB/9qMSF8AAAAASUVORK5CYII=";
+  try {
+    const provider = getImageProviderConfig();
+    const content = await analyzePrismaImage(
+      provider,
+      { data: red16Png, mimeType: "image/png" },
+      "Describe de forma breve el color dominante de esta imagen.",
+    );
+    if (!content.trim()) throw new Error("La prueba de visión devolvió texto vacío.");
+    logger.info(
+      { prismaVisionSmoke: { ok: true, model: provider.model, response: content.slice(0, 500) } },
+      "Prisma vision smoke test passed",
+    );
+  } catch (error) {
+    logger.error(
+      {
+        prismaVisionSmoke: {
+          ok: false,
+          error: error instanceof Error ? error.message.slice(0, 1200) : "unknown",
+        },
+      },
+      "Prisma vision smoke test failed",
+    );
+  }
+}
+
 async function runWriteSmokeTest() {
   if (process.env.PRISMA_STARTUP_WRITE_SMOKE?.trim() !== "1") return;
   try {
@@ -165,6 +195,7 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   void runOperationalSelfTest();
   void runAgentSmokeTest();
+  void runVisionSmokeTest();
   void runWriteSmokeTest();
   void runMutationSmokeOnce();
 });

@@ -70,12 +70,7 @@ function shouldTryNextProvider({ capability, failure, responseStatus, toolReques
 
   const payloadCompatibilityStatus = [400, 404, 405, 415, 422].includes(responseStatus);
 
-  // Vision providers are not fully payload-compatible with each other.
   if (capability === "vision" && payloadCompatibilityStatus) return true;
-
-  // Tool calling is not uniformly supported even among otherwise valid chat models.
-  // 413 can also be model-specific (small TPM/context allowance), so agent requests
-  // should keep moving to the next conservation-ranked candidate.
   if (toolRequest && (payloadCompatibilityStatus || responseStatus === 413)) return true;
 
   return false;
@@ -88,6 +83,18 @@ function sanitizeDiagnostic(text) {
     .replace(/\s+/g, " ")
     .trim()
     .slice(0, 320);
+}
+
+function chatEndpoint(provider) {
+  const base = provider.baseUrl.replace(/\/+$/, "");
+  const isCloudflare = /api\.cloudflare\.com/i.test(base) || /cloudflare/i.test(provider?.name ?? "");
+
+  if (isCloudflare) {
+    if (/\/ai\/v1$/i.test(base)) return `${base}/chat/completions`;
+    if (/\/ai$/i.test(base)) return `${base}/v1/chat/completions`;
+  }
+
+  return `${base}/chat/completions`;
 }
 
 export async function requestChatWithFallback({
@@ -122,7 +129,7 @@ export async function requestChatWithFallback({
     let response;
     try {
       response = await fetchImpl(
-        `${provider.baseUrl.replace(/\/+$/, "")}/chat/completions`,
+        chatEndpoint(provider),
         {
           method: "POST",
           headers: {

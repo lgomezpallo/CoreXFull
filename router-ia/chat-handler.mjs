@@ -5,6 +5,7 @@ const MAX_BODY_BYTES = 1_048_576;
 const MAX_RESPONSE_BYTES = 2_000_000;
 const DEFAULT_MAX_TOKENS = 512;
 const MAX_TOKENS = 8_192;
+const ROUTABLE_TEXT_CAPABILITIES = new Set(["chat", "coding", "reasoning", "document", "long_context"]);
 const FORWARDED_FIELDS = [
   "temperature",
   "top_p",
@@ -103,9 +104,13 @@ export function createSmartChatHandler({ appToken, providerStore, fetchImpl = gl
     }
 
     const requestedModel = typeof body?.model === "string" ? body.model.trim() : "";
+    const requestedCapability =
+      typeof body?.router_capability === "string" ? body.router_capability.trim() : "";
     if (
       !body || typeof body !== "object" || Array.isArray(body) ||
-      (body.model !== undefined && (typeof body.model !== "string" || !requestedModel || requestedModel.length > 200))
+      (body.model !== undefined && (typeof body.model !== "string" || !requestedModel || requestedModel.length > 200)) ||
+      (body.router_capability !== undefined &&
+        (typeof body.router_capability !== "string" || !ROUTABLE_TEXT_CAPABILITIES.has(requestedCapability)))
     ) {
       sendJson(response, 400, { error: { code: "invalid_request", message: "Provide a valid completion request." } });
       return true;
@@ -162,6 +167,7 @@ export function createSmartChatHandler({ appToken, providerStore, fetchImpl = gl
       providers: Array.isArray(providers) ? providers : [],
       messages: body.messages,
       requestedModel,
+      requestedCapability,
       upstreamBody,
       fetchImpl,
     });

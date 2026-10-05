@@ -3,7 +3,7 @@ import {
   getProviderEndpoint,
   getProviderHeaders,
 } from "./ai-provider";
-import { corexApplyPatch } from "./corex-patch";
+import { corexWriteFile } from "./corex-tools";
 import { corexListTree, corexReadFile, corexSearch } from "./corex-ssh-read";
 import {
   listImportantMemories,
@@ -341,7 +341,12 @@ async function chooseMutationTarget(
   return { file, reason: reason || "Archivo seleccionado entre candidatos equivalentes." };
 }
 
-async function generatePatch(
+function countExactOccurrences(text: string, needle: string) {
+  if (!needle) return 0;
+  return text.split(needle).length - 1;
+}
+
+async function generateEditPlan(
   provider: AiProviderConfig,
   requestText: string,
   file: EvidenceFile,
@@ -352,7 +357,7 @@ async function generatePatch(
   const raw = await callRouter(provider, [
     {
       role: "system",
-      content: "Sos el editor de Prisma para CoreX. Modificá UN solo archivo y hacé el cambio mínimo. Devolvé únicamente JSON válido con message y patch. patch debe ser unified diff aplicable por git apply, con --- a/RUTA y +++ b/RUTA exactos. No uses markdown ni cambies otros archivos.",
+      content: "Sos el editor de Prisma para CoreX. El problema ya fue reducido a UN archivo. No generes diff ni código envolvente. Devolvé únicamente JSON válido con message, find y replace. find debe copiar EXACTAMENTE un bloque existente del archivo y replace debe ser su reemplazo mínimo. No cambies nada fuera de ese bloque.",
     },
     {
       role: "user",
@@ -365,19 +370,25 @@ async function generatePatch(
         `CONTENIDO:\n${file.content}`,
       ].filter(Boolean).join("\n\n"),
     },
-  ], 2800, capability);
+  ], 1800, capability);
 
   const parsed = parseJsonObject(raw);
   const message = typeof parsed.message === "string" ? parsed.message.trim().slice(0, 160) : "";
-  const patch = typeof parsed.patch === "string" ? parsed.patch.trim() : "";
-  if (!message || !patch) throw new Error("El modelo no generó un parche estructurado completo.");
-  if (!patch.includes(`--- a/${file.path}`) || !patch.includes(`+++ b/${file.path}`)) {
-    throw new Error("El parche no apunta exactamente al único archivo autorizado.");
+  const find = typeof parsed.find === "string" ? parsed.find : "";
+  const replace = typeof parsed.replace === "string" ? parsed.replace : "";
+  if (!message || !find || find === replace) {
+    throw new Error("El modelo no devolvió una transformación mínima válida.");
   }
-  return { message, patch, capability };
+  const occurrences = countExactOccurrences(file.content, find);
+  if (occurrences !== 1) {
+    throw new Error(`El bloque find debe aparecer exactamente una vez; apareció ${occurrences}.`);
+  }
+  const nextContent = file.content.replace(find, replace);
+  if (nextContent === file.content) throw new Error("La transformación no cambia el archivo.");
+  return { message, find, replace, nextContent, capability };
 }
 
-async function generatePatchBounded(
+async function generateEditPlanBounded(
   provider: AiProviderConfig,
   requestText: string,
   file: EvidenceFile,
@@ -389,13 +400,13 @@ async function generatePatchBounded(
 
   for (const capability of capabilityLadder) {
     try {
-      return await generatePatch(provider, requestText, file, reason, detail, capability);
+      return await generateEditPlan(provider, requestText, file, reason, detail, capability);
     } catch (error) {
       detail = error instanceof Error ? error.message : "salida inválida";
     }
   }
 
-  throw new Error(`Ninguna capacidad pudo producir un parche válido. Último error: ${detail || "salida inválida"}`);
+  throw new Error(`Ninguna capacidad pudo producir una transformación válida. Último error: ${detail || "salida inválida"}`);
 }
 
 async function runCorexMutation(
@@ -412,33 +423,44 @@ async function runCorexMutation(
     return `${diagnosis}\n\nNo toqué CoreX: ${error instanceof Error ? error.message : "no hay un objetivo seguro"}`;
   }
 
-  let generated: Awaited<ReturnType<typeof generatePatchBounded>>;
+  let generated: Awaited<ReturnType<typeof generateEditPlanBounded>>;
   try {
-    generated = await generatePatchBounded(provider, requestText, target.file, target.reason);
+    generated = await generateEditPlanBounded(provider, requestText, target.file, target.reason);
   } catch (error) {
-    return `No toqué CoreX. Encontré ${target.file.path}, pero no pude producir un parche válido en dos intentos: ${error instanceof Error ? error.message : "salida inválida"}`;
+    return `No toqué CoreX. Encontré ${target.file.path}, pero no pude resolver una transformación segura: ${error instanceof Error ? error.message : "salida inválida"}`;
   }
 
-  let applied: Awaited<ReturnType<typeof corexApplyPatch>>;
+  let applied: Awaited<ReturnType<typeof corexWriteFile>>;
   try {
-    applied = await corexApplyPatch({
+    applied = await corexWriteFile({
       path: target.file.path,
       expectedSha: target.file.sha,
-      patch: generated.patch,
+      content: generated.nextContent,
       message: generated.message,
     });
   } catch (firstError) {
-    const detail = firstError instanceof Error ? firstError.message : "El parche no validó.";
+    const detail = firstError instanceof Error ? firstError.message : "La escritura no validó.";
     try {
-      generated = await generatePatchBounded(provider, requestText, target.file, target.reason, detail);
-      applied = await corexApplyPatch({
-        path: target.file.path,
-        expectedSha: target.file.sha,
-        patch: generated.patch,
+      const fresh = await corexReadFile(target.file.path);
+      const freshFile: EvidenceFile = {
+        path: fresh.path,
+        sha: fresh.sha,
+        size: fresh.size,
+        content: fresh.content,
+        truncated: fresh.truncated,
+        score: target.file.score,
+      };
+      if (freshFile.truncated) throw new Error("El archivo cambió y ahora requiere una lectura más acotada.");
+      generated = await generateEditPlanBounded(provider, requestText, freshFile, target.reason, detail);
+      applied = await corexWriteFile({
+        path: freshFile.path,
+        expectedSha: freshFile.sha,
+        content: generated.nextContent,
         message: generated.message,
       });
+      target = { ...target, file: freshFile };
     } catch (secondError) {
-      return `No toqué CoreX. El parche para ${target.file.path} no pasó la validación segura: ${secondError instanceof Error ? secondError.message : "error de validación"}`;
+      return `No toqué CoreX. La transformación para ${target.file.path} no pasó la validación segura: ${secondError instanceof Error ? secondError.message : "error de validación"}`;
     }
   }
 
@@ -446,13 +468,12 @@ async function runCorexMutation(
     kind: "change",
     scope: "corex",
     key: `change:${target.file.path}`,
-    content: `Se aplicó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}. Capacidad usada para el parche: ${generated.capability}.`,
+    content: `Se aplicó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}. Capacidad usada: ${generated.capability}.`,
     importance: 90,
   }).catch(() => undefined);
 
-  return `Corregí CoreX en ${target.file.path}. Cambio: ${generated.message}. Commit ${applied.commitSha.slice(0, 12)}. El parche fue validado contra el SHA leído antes de escribir. Capacidad usada: ${generated.capability}.`;
+  return `Corregí CoreX en ${target.file.path}. Cambio: ${generated.message}. Commit ${applied.commitSha.slice(0, 12)}. Prisma validó un único bloque exacto antes de escribir. Capacidad usada: ${generated.capability}.`;
 }
-
 
 export async function runPrismaCapabilityLadderSmoke(provider: AiProviderConfig) {
   const syntheticFile: EvidenceFile = {
@@ -463,7 +484,7 @@ export async function runPrismaCapabilityLadderSmoke(provider: AiProviderConfig)
     truncated: false,
     score: 1,
   };
-  const generated = await generatePatchBounded(
+  const generated = await generateEditPlanBounded(
     provider,
     "Cambio acotado: en este único archivo cambia enabled de false a true. No hagas ningún otro cambio.",
     syntheticFile,
@@ -473,7 +494,9 @@ export async function runPrismaCapabilityLadderSmoke(provider: AiProviderConfig)
     ok: true,
     capability: generated.capability,
     message: generated.message,
-    patch: generated.patch.slice(0, 900),
+    find: generated.find,
+    replace: generated.replace,
+    observed: generated.nextContent.trim(),
   };
 }
 

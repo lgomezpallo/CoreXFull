@@ -163,3 +163,68 @@ test("vision tries the next vision provider after a 400 payload rejection", asyn
   assert.equal(body.choices[0].message.content, "segunda visión funcionó");
   assert.deepEqual(calls.map((call) => call.body.model), ["vision-a-model", "vision-b-model"]);
 });
+
+
+test("explicit task capability routes only to models with that capability", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "plain-chat", model: "plain-chat-model", priority: 100, capabilities: ["chat"] }),
+    provider({ id: "reasoner", model: "reasoner-model", priority: 40, capabilities: ["chat", "reasoning"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({
+      id: "reasoning-ok",
+      choices: [{ index: 0, message: { role: "assistant", content: "reasoning worked" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "router-ia-auto",
+      router_capability: "reasoning",
+      messages: [{ role: "user", content: "Elegí entre dos candidatos ya analizados." }],
+    }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.router.capability, "reasoning");
+  assert.deepEqual(calls.map((call) => call.body.model), ["reasoner-model"]);
+});
+
+test("image content overrides a text capability request and routes as vision", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "reasoner", model: "reasoner-model", priority: 100, capabilities: ["chat", "reasoning"] }),
+    provider({ id: "vision", model: "vision-model", priority: 40, capabilities: ["chat", "vision"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    return new Response(JSON.stringify({
+      id: "vision-ok",
+      choices: [{ index: 0, message: { role: "assistant", content: "vision worked" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({
+      model: "router-ia-auto",
+      router_capability: "reasoning",
+      messages: [{
+        role: "user",
+        content: [
+          { type: "text", text: "¿Qué ves?" },
+          { type: "image_url", image_url: { url: "data:image/png;base64,AAAA" } },
+        ],
+      }],
+    }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.router.capability, "vision");
+  assert.deepEqual(calls.map((call) => call.body.model), ["vision-model"]);
+});

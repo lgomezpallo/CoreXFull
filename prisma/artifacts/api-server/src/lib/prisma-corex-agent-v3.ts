@@ -453,6 +453,30 @@ async function runCorexMutation(
   return `Corregí CoreX en ${target.file.path}. Cambio: ${generated.message}. Commit ${applied.commitSha.slice(0, 12)}. El parche fue validado contra el SHA leído antes de escribir. Capacidad usada: ${generated.capability}.`;
 }
 
+
+export async function runPrismaCapabilityLadderSmoke(provider: AiProviderConfig) {
+  const syntheticFile: EvidenceFile = {
+    path: "corex/__prisma_capability_smoke__.ts",
+    sha: "synthetic",
+    size: 34,
+    content: "export const enabled = false;\n",
+    truncated: false,
+    score: 1,
+  };
+  const generated = await generatePatchBounded(
+    provider,
+    "Cambio acotado: en este único archivo cambia enabled de false a true. No hagas ningún otro cambio.",
+    syntheticFile,
+    "Prueba seca: objetivo único y cambio mínimo ya resuelto por Prisma.",
+  );
+  return {
+    ok: true,
+    capability: generated.capability,
+    message: generated.message,
+    patch: generated.patch.slice(0, 900),
+  };
+}
+
 export async function runPrismaCorexAgent(input: {
   provider: AiProviderConfig;
   messages: PrismaAgentInputMessage[];

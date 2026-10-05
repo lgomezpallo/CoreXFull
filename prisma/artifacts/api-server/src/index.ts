@@ -1,6 +1,7 @@
 import app from "./app";
 import { getChatProviderConfig, getImageProviderConfig } from "./lib/ai-provider";
 import { runPrismaCorexAgent } from "./lib/prisma-corex-agent";
+import { runPrismaCapabilityLadderSmoke } from "./lib/prisma-corex-agent-v3";
 import { runPrismaAgentMutationSmoke } from "./lib/prisma-agent-mutation-smoke";
 import { corexManagedWriteSetup, corexToolStatus } from "./lib/corex-tools";
 import { corexListTree } from "./lib/corex-ssh-read";
@@ -121,6 +122,29 @@ async function runAgentSmokeTest() {
   }
 }
 
+
+async function runCapabilityLadderSmokeTest() {
+  if (process.env.PRISMA_STARTUP_CAPABILITY_SMOKE?.trim() !== "1") return;
+  try {
+    const provider = getChatProviderConfig();
+    const result = await runPrismaCapabilityLadderSmoke(provider);
+    logger.info(
+      { prismaCapabilitySmoke: result },
+      "Prisma capability ladder smoke test passed",
+    );
+  } catch (error) {
+    logger.error(
+      {
+        prismaCapabilitySmoke: {
+          ok: false,
+          error: error instanceof Error ? error.message.slice(0, 1200) : "unknown",
+        },
+      },
+      "Prisma capability ladder smoke test failed",
+    );
+  }
+}
+
 async function runVisionSmokeTest() {
   if (process.env.PRISMA_STARTUP_VISION_SMOKE?.trim() !== "1") return;
 
@@ -195,6 +219,7 @@ app.listen(port, (err) => {
   logger.info({ port }, "Server listening");
   void runOperationalSelfTest();
   void runAgentSmokeTest();
+  void runCapabilityLadderSmokeTest();
   void runVisionSmokeTest();
   void runWriteSmokeTest();
   void runMutationSmokeOnce();

@@ -131,10 +131,18 @@ async function routerError(response: Response) {
   return text.replace(/\s+/g, " ").slice(0, 300);
 }
 
-async function callRouter(provider: AiProviderConfig, messages: AgentMessage[], maxTokens = 1000) {
+type RouterTaskCapability = "chat" | "reasoning" | "coding";
+
+async function callRouter(
+  provider: AiProviderConfig,
+  messages: AgentMessage[],
+  maxTokens = 1000,
+  capability: RouterTaskCapability = "chat",
+) {
   const endpoint = getProviderEndpoint(provider.baseUrl, "chat/completions");
   const body = JSON.stringify({
     model: provider.model,
+    router_capability: capability,
     messages,
     max_tokens: maxTokens,
     stream: false,
@@ -339,6 +347,7 @@ async function generatePatch(
   file: EvidenceFile,
   reason: string,
   previousError = "",
+  capability: RouterTaskCapability = "chat",
 ) {
   const raw = await callRouter(provider, [
     {
@@ -356,7 +365,7 @@ async function generatePatch(
         `CONTENIDO:\n${file.content}`,
       ].filter(Boolean).join("\n\n"),
     },
-  ], 2800);
+  ], 2800, capability);
 
   const parsed = parseJsonObject(raw);
   const message = typeof parsed.message === "string" ? parsed.message.trim().slice(0, 160) : "";
@@ -365,7 +374,7 @@ async function generatePatch(
   if (!patch.includes(`--- a/${file.path}`) || !patch.includes(`+++ b/${file.path}`)) {
     throw new Error("El parche no apunta exactamente al único archivo autorizado.");
   }
-  return { message, patch };
+  return { message, patch, capability };
 }
 
 async function generatePatchBounded(
@@ -375,12 +384,18 @@ async function generatePatchBounded(
   reason: string,
   firstError = "",
 ) {
-  try {
-    return await generatePatch(provider, requestText, file, reason, firstError);
-  } catch (error) {
-    const detail = error instanceof Error ? error.message : "salida inválida";
-    return generatePatch(provider, requestText, file, reason, detail);
+  const capabilityLadder: RouterTaskCapability[] = ["chat", "reasoning", "coding"];
+  let detail = firstError;
+
+  for (const capability of capabilityLadder) {
+    try {
+      return await generatePatch(provider, requestText, file, reason, detail, capability);
+    } catch (error) {
+      detail = error instanceof Error ? error.message : "salida inválida";
+    }
   }
+
+  throw new Error(`Ninguna capacidad pudo producir un parche válido. Último error: ${detail || "salida inválida"}`);
 }
 
 async function runCorexMutation(
@@ -431,11 +446,11 @@ async function runCorexMutation(
     kind: "change",
     scope: "corex",
     key: `change:${target.file.path}`,
-    content: `Se aplicó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}`,
+    content: `Se aplicó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}. Capacidad usada para el parche: ${generated.capability}.`,
     importance: 90,
   }).catch(() => undefined);
 
-  return `Corregí CoreX en ${target.file.path}. Cambio: ${generated.message}. Commit ${applied.commitSha.slice(0, 12)}. El parche fue validado contra el SHA leído antes de escribir.`;
+  return `Corregí CoreX en ${target.file.path}. Cambio: ${generated.message}. Commit ${applied.commitSha.slice(0, 12)}. El parche fue validado contra el SHA leído antes de escribir. Capacidad usada: ${generated.capability}.`;
 }
 
 export async function runPrismaCorexAgent(input: {

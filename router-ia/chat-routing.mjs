@@ -36,12 +36,15 @@ function supportsCapability(provider, capability) {
   );
 }
 
-export function getChatCapability(messages) {
-  return hasImageContent(messages) ? "vision" : "chat";
+const ROUTABLE_TEXT_CAPABILITIES = new Set(["chat", "coding", "reasoning", "document", "long_context"]);
+
+export function getChatCapability(messages, requestedCapability = "") {
+  if (hasImageContent(messages)) return "vision";
+  return ROUTABLE_TEXT_CAPABILITIES.has(requestedCapability) ? requestedCapability : "chat";
 }
 
-export function getChatCandidates(providers, { messages, requestedModel }) {
-  const capability = getChatCapability(messages);
+export function getChatCandidates(providers, { messages, requestedModel, requestedCapability = "" }) {
+  const capability = getChatCapability(messages, requestedCapability);
   const eligible = providers.filter((provider) => supportsCapability(provider, capability));
 
   if (requestedModel && requestedModel !== "router-ia-auto") {
@@ -105,11 +108,12 @@ export async function requestChatWithFallback({
   providers,
   messages,
   requestedModel,
+  requestedCapability = "",
   upstreamBody,
   fetchImpl = globalThis.fetch,
   timeoutMs = 30_000,
 }) {
-  const { capability, candidates } = getChatCandidates(providers, { messages, requestedModel });
+  const { capability, candidates } = getChatCandidates(providers, { messages, requestedModel, requestedCapability });
   const toolRequest = hasToolRequest(upstreamBody);
 
   if (!candidates.length) {

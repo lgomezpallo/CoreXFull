@@ -66,6 +66,39 @@ export async function corexReadFile(pathValue: string) {
   });
 }
 
+
+export async function corexReadFileRange(pathValue: string, startLineValue = 1, endLineValue = 240) {
+  const path = safePath(pathValue);
+  const startLine = Math.max(1, Math.trunc(startLineValue));
+  const endLine = Math.max(startLine, Math.min(startLine + 599, Math.trunc(endLineValue)));
+  return withRepo(async (repoDir, env) => {
+    const { stdout: shaOut } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${path}`], {
+      env,
+      timeout: 20_000,
+      maxBuffer: 200_000,
+    });
+    const { stdout } = await execFileAsync("git", ["-C", repoDir, "show", `HEAD:${path}`], {
+      env,
+      timeout: 30_000,
+      maxBuffer: 4_000_000,
+      encoding: "utf8",
+    });
+    const lines = stdout.split("\n");
+    const actualEnd = Math.min(endLine, lines.length);
+    return {
+      path,
+      sha: shaOut.trim(),
+      size: Buffer.byteLength(stdout, "utf8"),
+      content: lines.slice(startLine - 1, actualEnd).join("\n"),
+      startLine,
+      endLine: actualEnd,
+      lineCount: lines.length,
+      partial: startLine > 1 || actualEnd < lines.length,
+      transport: "ssh",
+    };
+  });
+}
+
 export async function corexListTree(pathValue = "corex", depth = 2) {
   const root = safePath(pathValue);
   const maxDepth = Math.max(0, Math.min(4, Math.trunc(depth)));

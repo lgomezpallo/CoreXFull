@@ -388,15 +388,13 @@ async function chooseMutationTarget(
   const candidates = evidence.files
     .map((file) => `- ${file.path} SCORE=${file.score} SHA=${file.sha} SIZE=${file.size}`)
     .join("\n");
-  const raw = await callRouter(provider, [
+  const parsed = await callRouterJson(provider, [
     {
       role: "system",
       content: "Sos el selector de archivo de Prisma. Elegí UN solo archivo entre los candidatos ya leídos. No generes código. Devolvé sólo JSON válido con targetPath y reason. targetPath debe copiar exactamente una ruta candidata.",
     },
     { role: "user", content: `PEDIDO:\n${requestText.slice(0, 1800)}\n\nCANDIDATOS:\n${candidates}` },
   ], 450);
-
-  const parsed = parseJsonObject(raw);
   const targetPath = typeof parsed.targetPath === "string" ? parsed.targetPath.trim() : "";
   const reason = typeof parsed.reason === "string" ? parsed.reason.trim().slice(0, 700) : "";
   const file = evidence.files.find((candidate) => candidate.path === targetPath);
@@ -417,7 +415,7 @@ async function generateEditPlan(
   previousError = "",
   capability: RouterTaskCapability = "chat",
 ) {
-  const raw = await callRouter(provider, [
+  const parsed = await callRouterJson(provider, [
     {
       role: "system",
       content: "Sos el editor de Prisma para CoreX. El problema ya fue reducido a UN archivo. No generes diff ni código envolvente. Devolvé únicamente JSON válido con message, find y replace. find debe copiar EXACTAMENTE un bloque existente del archivo y replace debe ser su reemplazo mínimo. No cambies nada fuera de ese bloque.",
@@ -434,8 +432,6 @@ async function generateEditPlan(
       ].filter(Boolean).join("\n\n"),
     },
   ], 1800, capability);
-
-  const parsed = parseJsonObject(raw);
   const message = typeof parsed.message === "string" ? parsed.message.trim().slice(0, 160) : "";
   const find = typeof parsed.find === "string" ? parsed.find : "";
   const replace = typeof parsed.replace === "string" ? parsed.replace : "";

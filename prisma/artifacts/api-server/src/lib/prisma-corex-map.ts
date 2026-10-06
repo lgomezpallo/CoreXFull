@@ -1,5 +1,5 @@
 import { corexListTree } from "./corex-ssh-read";
-import { rememberPrisma, searchPrismaMemory } from "./prisma-memory";
+import { rememberPrisma, searchPrismaMemory, type PrismaMemory } from "./prisma-memory";
 
 export type CorexMapEntry = {
   path: string;
@@ -54,7 +54,7 @@ function parseStoredMap(content: string): CorexMapSnapshot | null {
 }
 
 async function loadStoredMap() {
-  const memories = await searchPrismaMemory(MAP_KEY, "corex", 8).catch(() => []);
+  const memories: PrismaMemory[] = await searchPrismaMemory(MAP_KEY, "corex", 8).catch(() => [] as PrismaMemory[]);
   return memories
     .filter((item) => item.key === MAP_KEY)
     .sort((a, b) => new Date(b.updatedAt).getTime() - new Date(a.updatedAt).getTime())

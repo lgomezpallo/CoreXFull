@@ -170,9 +170,9 @@ async function callRouter(
     stream: false,
   });
 
-  const waits = [3500, 6000, 9000];
+  const waits = [2500, 5000, 8000, 12000, 16000];
   let lastStatus = 502;
-  for (let attempt = 0; attempt < 4; attempt += 1) {
+  for (let attempt = 0; attempt < 6; attempt += 1) {
     let response: Response;
     try {
       response = await fetch(endpoint, {
@@ -182,7 +182,7 @@ async function callRouter(
         signal: AbortSignal.timeout(120_000),
       });
     } catch (error) {
-      if (attempt < 3) {
+      if (attempt < 5) {
         await wait(waits[attempt]);
         continue;
       }
@@ -191,16 +191,24 @@ async function callRouter(
     }
 
     if (response.ok) {
-      const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
-      const content = payload.choices?.[0]?.message?.content;
-      if (typeof content !== "string" || !content.trim()) throw new Error("Router IA respondió sin contenido utilizable.");
-      const cleaned = cleanUserFacingOutput(content);
-      if (!cleaned) throw new Error("Router IA respondió sin contenido utilizable.");
-      return cleaned;
+      try {
+        const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+        const content = payload.choices?.[0]?.message?.content;
+        if (typeof content !== "string" || !content.trim()) throw new Error("Router IA respondió sin contenido utilizable.");
+        const cleaned = cleanUserFacingOutput(content);
+        if (!cleaned) throw new Error("Router IA respondió sin contenido utilizable.");
+        return cleaned;
+      } catch (error) {
+        if (attempt < 5) {
+          await wait(waits[attempt]);
+          continue;
+        }
+        throw error;
+      }
     }
 
     lastStatus = response.status;
-    if ([502, 503, 504].includes(response.status) && attempt < 3) {
+    if ([502, 503, 504].includes(response.status) && attempt < 5) {
       await response.body?.cancel().catch(() => {});
       await wait(waits[attempt]);
       continue;
@@ -484,18 +492,17 @@ async function generateEditPlanBounded(
   reason: string,
   firstError = "",
 ) {
-  const capabilityLadder: RouterTaskCapability[] = ["chat", "reasoning", "coding"];
   let detail = firstError;
 
-  for (const capability of capabilityLadder) {
+  for (let attempt = 0; attempt < 3; attempt += 1) {
     try {
-      return await generateEditPlan(provider, requestText, file, reason, detail, capability);
+      return await generateEditPlan(provider, requestText, file, reason, detail, "chat");
     } catch (error) {
       detail = error instanceof Error ? error.message : "salida inválida";
     }
   }
 
-  throw new Error(`Ninguna capacidad pudo producir una transformación válida. Último error: ${detail || "salida inválida"}`);
+  throw new Error(`Prisma no pudo producir una transformación válida con los modelos de chat disponibles. Último error: ${detail || "salida inválida"}`);
 }
 
 async function verifyAppliedBlock(file: EvidenceFile, generated: { find: string; replace: string }) {

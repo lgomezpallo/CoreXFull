@@ -54,6 +54,13 @@ function wait(ms: number) {
   return new Promise<void>((resolve) => setTimeout(resolve, ms));
 }
 
+function cleanUserFacingOutput(text: string) {
+  return text
+    .replace(/<think>[\s\S]*?<\/think>/gi, "")
+    .replace(/<analysis>[\s\S]*?<\/analysis>/gi, "")
+    .trim();
+}
+
 function sanitizeHistory(messages: PrismaAgentInputMessage[], limit = 5) {
   return messages
     .filter((message) => message.role !== "assistant" || !ERROR_ASSISTANT_RE.test(message.content.trim()))
@@ -172,7 +179,9 @@ async function callRouter(
       const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
       const content = payload.choices?.[0]?.message?.content;
       if (typeof content !== "string" || !content.trim()) throw new Error("Router IA respondió sin contenido utilizable.");
-      return content.trim();
+      const cleaned = cleanUserFacingOutput(content);
+      if (!cleaned) throw new Error("Router IA respondió sin contenido utilizable.");
+      return cleaned;
     }
 
     lastStatus = response.status;
@@ -295,11 +304,11 @@ async function synthesizeDiagnosis(
   return callRouter(provider, [
     {
       role: "system",
-      content: "Sos Prisma, mantenedor de CoreX. La investigación ya fue desglosada por código en memoria, búsquedas y lecturas. No intentes llamar herramientas. No inventes. Respondé breve: qué entendiste, qué encontraste, causa o mejor hipótesis y siguiente paso.",
+      content: "Sos Prisma, mantenedor de CoreX. La investigación ya fue desglosada por código en memoria, búsquedas y lecturas. No intentes llamar herramientas. No inventes. La respuesta visible debe ser conversacional y corta: 2 a 5 frases como máximo. No muestres evaluación, razonamiento interno, metodología, listas de pasos ni encabezados como 'Entendí', 'Encontré', 'Hipótesis' o 'Siguiente paso'. Decí solamente el resultado útil y, si corresponde, qué vas a hacer o qué falta.",
     },
     ...sanitizeHistory(history, 4),
     { role: "user", content: `PEDIDO/CONTEXTO:\n${requestText.slice(0, 2400)}\n\nEVIDENCIA COREX:\n${evidenceText(evidence)}` },
-  ], 1300);
+  ], 450);
 }
 
 async function chooseMutationTarget(

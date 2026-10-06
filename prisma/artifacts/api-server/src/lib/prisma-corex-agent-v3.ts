@@ -45,7 +45,7 @@ type Evidence = {
 
 const CASUAL_RE = /^(hola|buenas|buen d[ií]a|buenas tardes|buenas noches|hey|holis|gracias|jaja+|\.\.?|\.\.\.)[!.? ]*$/i;
 const COREX_RE = /corex|mi primera app|diseñ|vista previa|preview|builder|xapk|proyecto|archivo|repo|c[oó]digo|componente|ruta|error|fall|diagn[oó]st|revis|ubic|correg|arregl|modific|implement|aplic|cambi/i;
-const CONTINUATION_RE = /^(dale|s[ií]|ok|joya|hacelo|aplicalo|aplícalo|corregilo|arreglalo|segu[ií]|otra vez)[!.? ]*$/i;
+const CONTINUATION_RE = /^(dale|s[ií]|ok|joya|hacelo|aplicalo|aplícalo|corregilo|arreglalo|solucionalo|solucionalo por favor|segu[ií]|otra vez)[!.? ]*$/i;
 const MUTATE_RE = /correg|arregl|modific|implement|aplic|cambi|solucion|hacelo|met[eé] el cambio/i;
 const NEGATIVE_MUTATION_RE = /no\s+(?:modifi|toqu|cambi|apli|corrij|arregl|implement)|sin\s+(?:modificar|tocar|cambiar|aplicar)/i;
 const ERROR_ASSISTANT_RE = /^(Router IA |Prisma alcanz[oó]|Prisma no pudo|<!doctype|<html)/i;
@@ -73,6 +73,11 @@ function sanitizeHistory(messages: PrismaAgentInputMessage[], limit = 5) {
 
 function isCorexTurn(messages: PrismaAgentInputMessage[], latest: string) {
   if (COREX_RE.test(latest)) return true;
+  if (MUTATE_RE.test(latest) && !NEGATIVE_MUTATION_RE.test(latest)) {
+    return messages
+      .slice(-8, -1)
+      .some((message) => COREX_RE.test(message.content));
+  }
   if (!CONTINUATION_RE.test(latest.trim())) return false;
   return messages
     .slice(-6, -1)
@@ -531,7 +536,7 @@ export async function runPrismaCorexAgent(input: {
   return callRouter(input.provider, [
     {
       role: "system",
-      content: "Sos Prisma y tu único dominio operativo es CoreX. Conversá en español y de forma directa. No inventes capacidades fuera de tu función.",
+      content: "Sos Prisma y tu único dominio operativo es CoreX. Conversá en español y de forma directa. No inventes capacidades fuera de tu función. Nunca derives al usuario a soporte técnico, Postman, reinstalaciones o terceros para resolver CoreX: si el pedido es operativo y existe contexto previo de CoreX, tratá de resolverlo vos con tus herramientas.",
     },
     ...sanitizeHistory(input.messages, 5),
   ], input.mode === "document" ? 1400 : 800);

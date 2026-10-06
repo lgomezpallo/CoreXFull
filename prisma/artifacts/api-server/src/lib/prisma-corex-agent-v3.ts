@@ -65,10 +65,14 @@ function wait(ms: number) {
 }
 
 function cleanUserFacingOutput(text: string) {
-  return text
+  const cleaned = text
     .replace(/<think>[\s\S]*?<\/think>/gi, "")
     .replace(/<analysis>[\s\S]*?<\/analysis>/gi, "")
+    .replace(/<reasoning>[\s\S]*?<\/reasoning>/gi, "")
     .trim();
+
+  if (/<(?:think|analysis|reasoning)>/i.test(cleaned)) return "";
+  return cleaned;
 }
 
 function sanitizeHistory(messages: PrismaAgentInputMessage[], limit = 5) {

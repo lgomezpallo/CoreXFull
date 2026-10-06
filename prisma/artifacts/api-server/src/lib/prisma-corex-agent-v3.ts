@@ -6,6 +6,12 @@ import {
 import { corexWriteFile } from "./corex-tools";
 import { corexListTree, corexReadFile, corexSearch } from "./corex-ssh-read";
 import {
+  getCurrentCorexMap,
+  mapCandidates,
+  refreshCorexMap,
+  type CorexMapSnapshot,
+} from "./prisma-corex-map";
+import {
   listImportantMemories,
   rememberPrisma,
   searchPrismaMemory,
@@ -41,6 +47,7 @@ type Evidence = {
   searches: Array<{ query: string; results: SearchHit[] }>;
   files: EvidenceFile[];
   tree: Awaited<ReturnType<typeof corexListTree>> | null;
+  map: CorexMapSnapshot;
 };
 
 const CASUAL_RE = /^(hola|buenas|buen d[ií]a|buenas tardes|buenas noches|hey|holis|gracias|jaja+|\.\.?|\.\.\.)[!.? ]*$/i;
@@ -222,6 +229,7 @@ function memoryText(memories: Evidence["memories"]) {
 
 async function gatherCorexEvidence(queryText: string): Promise<Evidence> {
   const terms = keywords(queryText);
+  const map = await getCurrentCorexMap();
   const memoryBatches = await Promise.all(
     terms.slice(0, 3).map((term) => searchPrismaMemory(term, undefined, 5).catch(() => [])),
   );
@@ -241,9 +249,15 @@ async function gatherCorexEvidence(queryText: string): Promise<Evidence> {
     for (const hit of search.results) scoreByPath.set(hit.path, (scoreByPath.get(hit.path) ?? 0) + 1);
   }
 
+  if (!scoreByPath.size) {
+    for (const entry of mapCandidates(map, terms, 8)) {
+      scoreByPath.set(entry.path, 0.5);
+    }
+  }
+
   const rankedPaths = [...scoreByPath.entries()]
     .sort((a, b) => b[1] - a[1])
-    .slice(0, 3);
+    .slice(0, 5);
 
   const files: EvidenceFile[] = [];
   for (const [path, score] of rankedPaths) {
@@ -262,7 +276,7 @@ async function gatherCorexEvidence(queryText: string): Promise<Evidence> {
 
   let tree: Evidence["tree"] = null;
   if (!files.length) tree = await corexListTree("corex", 3).catch(() => null);
-  return { memories, searches, files, tree };
+  return { memories, searches, files, tree, map };
 }
 
 function evidenceText(evidence: Evidence) {
@@ -283,11 +297,17 @@ function evidenceText(evidence: Evidence) {
     ? evidence.tree.entries.slice(0, 140).map((entry) => entry.path).join("\n")
     : "";
 
+  const mapText = evidence.map.entries
+    .slice(0, 260)
+    .map((entry) => entry.path)
+    .join("\n");
+
   return [
     `MEMORIA:\n${memoryText(evidence.memories) || "sin memoria relevante"}`,
+    `MAPA COREX (actualizado ${evidence.map.updatedAt}):\n${mapText || "sin datos"}`,
     searchText,
     filesText || `ÁRBOL COREX:\n${treeText || "sin datos"}`,
-  ].filter(Boolean).join("\n\n---\n\n").slice(0, 26000);
+  ].filter(Boolean).join("\n\n---\n\n").slice(0, 30000);
 }
 
 async function runCasual(provider: AiProviderConfig, latest: string) {
@@ -484,6 +504,8 @@ async function runCorexMutation(
     content: `Se aplicó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}. Capacidad usada: ${generated.capability}.`,
     importance: 90,
   }).catch(() => undefined);
+
+  await refreshCorexMap().catch(() => undefined);
 
   return "Listo.";
 }

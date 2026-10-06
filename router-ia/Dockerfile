@@ -9,6 +9,8 @@ RUN npm install --omit=dev --no-audit --no-fund
 COPY --chown=node:node server.mjs main.mjs chat-handler.mjs chat-routing.mjs conservation-policy.mjs multimodal-routes.mjs cloudflare-audio-routes.mjs cloudflare-image-routes.mjs capabilities-route.mjs admin-extra-routes.mjs admin-routes.mjs admin-passkey-store.mjs provider-adapter.mjs provider-store.mjs provider-capabilities.mjs provider-auditor.mjs vision-auditor.mjs cloudflare-sync.mjs probe-assets.mjs ./
 COPY --chown=node:node admin ./admin
 COPY --chown=node:node supabase/migrations ./supabase/migrations
+COPY --chown=node:node *.test.mjs ./
+RUN npm test
 
 USER node
 EXPOSE 8080

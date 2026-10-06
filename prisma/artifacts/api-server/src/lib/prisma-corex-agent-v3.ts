@@ -428,15 +428,14 @@ async function runCorexMutation(
   try {
     target = await chooseMutationTarget(provider, requestText, evidence);
   } catch (error) {
-    const diagnosis = await synthesizeDiagnosis(provider, requestText, history, evidence);
-    return `${diagnosis}\n\nNo toqué CoreX: ${error instanceof Error ? error.message : "no hay un objetivo seguro"}`;
+    return `No pude: ${error instanceof Error ? error.message : "no hay un objetivo seguro"}`;
   }
 
   let generated: Awaited<ReturnType<typeof generateEditPlanBounded>>;
   try {
     generated = await generateEditPlanBounded(provider, requestText, target.file, target.reason);
   } catch (error) {
-    return `No toqué CoreX. Encontré ${target.file.path}, pero no pude resolver una transformación segura: ${error instanceof Error ? error.message : "salida inválida"}`;
+    return `No pude: ${error instanceof Error ? error.message : "salida inválida"}`;
   }
 
   let applied: Awaited<ReturnType<typeof corexWriteFile>>;
@@ -469,7 +468,7 @@ async function runCorexMutation(
       });
       target = { ...target, file: freshFile };
     } catch (secondError) {
-      return `No toqué CoreX. La transformación para ${target.file.path} no pasó la validación segura: ${secondError instanceof Error ? secondError.message : "error de validación"}`;
+      return `No pude: ${secondError instanceof Error ? secondError.message : "error de validación"}`;
     }
   }
 
@@ -481,7 +480,7 @@ async function runCorexMutation(
     importance: 90,
   }).catch(() => undefined);
 
-  return `Corregí CoreX en ${target.file.path}. Cambio: ${generated.message}. Commit ${applied.commitSha.slice(0, 12)}. Prisma validó un único bloque exacto antes de escribir. Capacidad usada: ${generated.capability}.`;
+  return "Listo.";
 }
 
 export async function runPrismaCapabilityLadderSmoke(provider: AiProviderConfig) {

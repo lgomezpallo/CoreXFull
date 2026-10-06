@@ -472,6 +472,22 @@ async function generateEditPlanBounded(
   throw new Error(`Ninguna capacidad pudo producir una transformación válida. Último error: ${detail || "salida inválida"}`);
 }
 
+async function verifyAppliedBlock(file: EvidenceFile, generated: { find: string; replace: string }) {
+  const startLine = file.startLine ?? 1;
+  const endLine = file.endLine ?? (startLine + 420);
+  const verified = await corexReadFileRange(file.path, startLine, endLine);
+  const replacementPresent = verified.content.includes(generated.replace);
+  const oldBlockStillPresent = generated.find !== generated.replace && verified.content.includes(generated.find);
+  return {
+    ok: replacementPresent && !oldBlockStillPresent,
+    replacementPresent,
+    oldBlockStillPresent,
+    sha: verified.sha,
+    startLine: verified.startLine,
+    endLine: verified.endLine,
+  };
+}
+
 async function runCorexMutation(
   provider: AiProviderConfig,
   requestText: string,
@@ -532,17 +548,25 @@ async function runCorexMutation(
     }
   }
 
+  const verification = await verifyAppliedBlock(target.file, generated).catch(() => null);
+
   await rememberPrisma({
-    kind: "change",
+    kind: verification?.ok ? "change" : "verification_failure",
     scope: "corex",
     key: `change:${target.file.path}`,
-    content: `Se aplicó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}. Capacidad usada: ${generated.capability}.`,
-    importance: 90,
+    content: verification?.ok
+      ? `Se aplicó y verificó '${generated.message}' en ${target.file.path}. Commit ${applied.commitSha}. Motivo: ${target.reason}. Capacidad usada: ${generated.capability}. Verificación SHA ${verification.sha}.`
+      : `Se aplicó '${generated.message}' en ${target.file.path}, commit ${applied.commitSha}, pero Prisma no pudo confirmar el resultado final del bloque.`,
+    importance: verification?.ok ? 95 : 100,
   }).catch(() => undefined);
 
   await refreshCorexMap().catch(() => undefined);
 
-  return "Listo.";
+  if (!verification?.ok) {
+    return "Apliqué el cambio, pero no pude verificarlo de forma confiable.";
+  }
+
+  return "Listo, ya quedó aplicado y verificado.";
 }
 
 export async function runPrismaCapabilityLadderSmoke(provider: AiProviderConfig) {

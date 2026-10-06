@@ -223,6 +223,36 @@ function parseJsonObject(text: string): Record<string, unknown> {
   return parsed as Record<string, unknown>;
 }
 
+
+async function callRouterJson(
+  provider: AiProviderConfig,
+  messages: AgentMessage[],
+  maxTokens: number,
+  capability: RouterTaskCapability = "chat",
+) {
+  const raw = await callRouter(provider, messages, maxTokens, capability);
+  try {
+    return parseJsonObject(raw);
+  } catch (firstError) {
+    const repaired = await callRouter(provider, [
+      {
+        role: "system",
+        content: "Convertí la respuesta recibida a un objeto JSON válido. No agregues explicación ni markdown. Conservá la intención y los campos pedidos.",
+      },
+      {
+        role: "user",
+        content: raw.slice(0, 7000),
+      },
+    ], Math.min(maxTokens, 1800), capability);
+
+    try {
+      return parseJsonObject(repaired);
+    } catch {
+      throw firstError;
+    }
+  }
+}
+
 function memoryText(memories: Evidence["memories"]) {
   return memories
     .slice(0, 12)

@@ -243,6 +243,61 @@ export async function corexWriteFile(input: {
   return writeViaSsh({ path, content: input.content, expectedSha, message });
 }
 
+
+export async function corexReplaceExactBlock(input: {
+  path: string;
+  expectedSha: string;
+  find: string;
+  replace: string;
+  message: string;
+}) {
+  const path = safeCorexPath(input.path);
+  const expectedSha = input.expectedSha.trim();
+  const message = input.message.trim().slice(0, 160);
+  if (!expectedSha) throw new Error("El reemplazo exige el SHA actual del archivo.");
+  if (!input.find || input.find === input.replace) throw new Error("El reemplazo exacto no es válido.");
+  if (!message) throw new Error("El reemplazo exige un mensaje de cambio.");
+
+  const privateKey = await privateSshKey();
+  const workdir = await mkdtemp(join(tmpdir(), "prisma-corex-replace-"));
+  const keyPath = join(workdir, "id_ed25519");
+  const repoDir = join(workdir, "repo");
+  const env = sshEnv(keyPath);
+
+  try {
+    await writeFile(keyPath, `${privateKey}\n`, { mode: 0o600 });
+    await execFileAsync("git", ["clone", "--depth", "1", "--branch", GITHUB_BRANCH, `git@github.com:${GITHUB_OWNER}/${GITHUB_REPO}.git`, repoDir], { env, timeout: 90_000 });
+
+    const { stdout: shaOut } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${path}`], { env, timeout: 20_000 });
+    const actualSha = shaOut.trim();
+    if (actualSha !== expectedSha) {
+      throw new Error("El archivo cambió desde que Prisma leyó el bloque. Debe releerlo antes de escribir.");
+    }
+
+    const target = join(repoDir, path);
+    const { readFile } = await import("node:fs/promises");
+    const content = await readFile(target, "utf8");
+    const occurrences = content.split(input.find).length - 1;
+    if (occurrences !== 1) {
+      throw new Error(`El bloque exacto debe aparecer una sola vez en el archivo completo; apareció ${occurrences}.`);
+    }
+
+    const nextContent = content.replace(input.find, input.replace);
+    await writeFile(target, nextContent, "utf8");
+    await execFileAsync("git", ["-C", repoDir, "config", "user.name", "Prisma CoreX Agent"], { env, timeout: 20_000 });
+    await execFileAsync("git", ["-C", repoDir, "config", "user.email", "prisma-agent@users.noreply.github.com"], { env, timeout: 20_000 });
+    await execFileAsync("git", ["-C", repoDir, "add", "--", path], { env, timeout: 20_000 });
+    await execFileAsync("git", ["-C", repoDir, "commit", "-m", `[Prisma] ${message}`], { env, timeout: 30_000 });
+    await execFileAsync("git", ["-C", repoDir, "push", "origin", `HEAD:${GITHUB_BRANCH}`], { env, timeout: 90_000 });
+
+    const { stdout: commitSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", "HEAD"], { env, timeout: 20_000 });
+    const { stdout: contentSha } = await execFileAsync("git", ["-C", repoDir, "rev-parse", `HEAD:${path}`], { env, timeout: 20_000 });
+    return { path, commitSha: commitSha.trim(), contentSha: contentSha.trim(), transport: "ssh", changed: true };
+  } finally {
+    await rm(workdir, { recursive: true, force: true }).catch(() => undefined);
+  }
+}
+
 export async function corexCreateFile(input: { path: string; content: string; message: string }) {
   const path = safeCorexPath(input.path);
   const message = input.message.trim().slice(0, 160);

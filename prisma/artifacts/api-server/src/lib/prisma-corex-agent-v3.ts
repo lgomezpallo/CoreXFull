@@ -3,7 +3,7 @@ import {
   getProviderEndpoint,
   getProviderHeaders,
 } from "./ai-provider";
-import { corexReplaceExactBlock, corexWriteFile } from "./corex-tools";
+import { corexReplaceExactBlock } from "./corex-tools";
 import { corexListTree, corexReadFile, corexReadFileRange, corexSearch } from "./corex-ssh-read";
 import {
   getCurrentCorexMap,

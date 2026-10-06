@@ -73,14 +73,29 @@ test("messages with images route only to vision-capable models", async (t) => {
   assert.equal(calls[0].body.model, "vision-model");
 });
 
-test("normal chat still stops after a semantic 400", async (t) => {
+test("normal chat falls back after a provider-specific 400", async (t) => {
   const calls = [];
-  const providers = [provider({ id: "first", model: "first-model", priority: 90, capabilities: ["chat"] }), provider({ id: "second", model: "second-model", priority: 50, capabilities: ["chat"] })];
-  const baseUrl = await startApp(t, providers, async (url, options) => { calls.push({ url, body: JSON.parse(options.body) }); return new Response("bad request", { status: 400 }); });
-  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, { method: "POST", headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" }, body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "hola" }] }) });
-  assert.equal(response.status, 400);
-  assert.equal(calls.length, 1);
-  assert.equal(calls[0].body.model, "first-model");
+  const providers = [
+    provider({ id: "first", model: "first-model", priority: 90, capabilities: ["chat"] }),
+    provider({ id: "second", model: "second-model", priority: 50, capabilities: ["chat"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    if (url.startsWith("https://first.example")) return new Response("bad request", { status: 400 });
+    return new Response(JSON.stringify({
+      id: "ok-after-400",
+      choices: [{ index: 0, message: { role: "assistant", content: "fallback after 400" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "hola" }] }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.choices[0].message.content, "fallback after 400");
+  assert.deepEqual(calls.map((call) => call.body.model), ["first-model", "second-model"]);
 });
 
 test("tool-calling chat tries the next provider after a 400 payload rejection", async (t) => {
@@ -227,4 +242,90 @@ test("image content overrides a text capability request and routes as vision", a
   assert.equal(response.status, 200);
   assert.equal(body.router.capability, "vision");
   assert.deepEqual(calls.map((call) => call.body.model), ["vision-model"]);
+});
+
+
+test("HTTP 200 with empty completion falls back to the next provider", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "empty", model: "empty-model", priority: 90, capabilities: ["chat"] }),
+    provider({ id: "healthy", model: "healthy-model", priority: 50, capabilities: ["chat"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    if (url.startsWith("https://empty.example")) {
+      return new Response(JSON.stringify({
+        id: "empty",
+        choices: [{ index: 0, message: { role: "assistant", content: "" } }],
+      }), { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({
+      id: "healthy",
+      choices: [{ index: 0, message: { role: "assistant", content: "usable" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "hola" }] }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.choices[0].message.content, "usable");
+  assert.deepEqual(calls.map((call) => call.body.model), ["empty-model", "healthy-model"]);
+});
+
+test("HTTP 200 with malformed JSON falls back to the next provider", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "broken-json", model: "broken-json-model", priority: 90, capabilities: ["chat"] }),
+    provider({ id: "healthy-json", model: "healthy-json-model", priority: 50, capabilities: ["chat"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    if (url.startsWith("https://broken-json.example")) {
+      return new Response("{not-json", { status: 200, headers: { "content-type": "application/json" } });
+    }
+    return new Response(JSON.stringify({
+      id: "healthy-json",
+      choices: [{ index: 0, message: { role: "assistant", content: "recovered" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "router-ia-auto", messages: [{ role: "user", content: "hola" }] }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.choices[0].message.content, "recovered");
+  assert.deepEqual(calls.map((call) => call.body.model), ["broken-json-model", "healthy-json-model"]);
+});
+
+test("an explicitly requested model is preferred but no longer a single point of failure", async (t) => {
+  const calls = [];
+  const providers = [
+    provider({ id: "preferred", model: "preferred-model", priority: 10, capabilities: ["chat"] }),
+    provider({ id: "fallback", model: "fallback-model", priority: 90, capabilities: ["chat"] }),
+  ];
+  const baseUrl = await startApp(t, providers, async (url, options) => {
+    calls.push({ url, body: JSON.parse(options.body) });
+    if (url.startsWith("https://preferred.example")) return new Response("server error", { status: 503 });
+    return new Response(JSON.stringify({
+      id: "explicit-fallback",
+      choices: [{ index: 0, message: { role: "assistant", content: "fallback despite explicit preference" } }],
+    }), { status: 200, headers: { "content-type": "application/json" } });
+  });
+
+  const response = await fetch(`${baseUrl}/api/v1/chat/completions`, {
+    method: "POST",
+    headers: { authorization: `Bearer ${APP_TOKEN}`, "content-type": "application/json" },
+    body: JSON.stringify({ model: "preferred-model", messages: [{ role: "user", content: "hola" }] }),
+  });
+  const body = await response.json();
+  assert.equal(response.status, 200);
+  assert.equal(body.choices[0].message.content, "fallback despite explicit preference");
+  assert.deepEqual(calls.map((call) => call.body.model), ["preferred-model", "fallback-model"]);
 });

@@ -229,10 +229,12 @@ app.listen(port, (err) => {
       "Prisma chat provider configuration failed",
     );
   }
-  void runOperationalSelfTest();
-  void runAgentSmokeTest();
-  void runCapabilityLadderSmokeTest();
-  void runVisionSmokeTest();
-  void runWriteSmokeTest();
-  void runMutationSmokeOnce();
+  void (async () => {
+    await runOperationalSelfTest();
+    await runAgentSmokeTest();
+    await runCapabilityLadderSmokeTest();
+    await runVisionSmokeTest();
+    await runWriteSmokeTest();
+    await runMutationSmokeOnce();
+  })();
 });

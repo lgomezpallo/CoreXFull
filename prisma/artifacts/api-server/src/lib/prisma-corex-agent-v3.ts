@@ -155,12 +155,61 @@ async function routerError(response: Response) {
 
 type RouterTaskCapability = "chat" | "reasoning" | "coding";
 
+let routerWarmUntil = 0;
+
+async function ensureRouterWarm(provider: AiProviderConfig) {
+  if (provider.model !== "router-ia-auto") return;
+  if (Date.now() < routerWarmUntil) return;
+
+  let healthUrl: URL;
+  try {
+    healthUrl = new URL(provider.baseUrl);
+  } catch {
+    return;
+  }
+  if (!healthUrl.hostname.endsWith(".onrender.com")) return;
+
+  healthUrl.pathname = "/health";
+  healthUrl.search = "";
+  healthUrl.hash = "";
+
+  const waits = [0, 4000, 7000, 11000, 16000, 22000, 30000];
+  let lastStatus = 0;
+
+  for (let attempt = 0; attempt < waits.length; attempt += 1) {
+    if (waits[attempt] > 0) await wait(waits[attempt]);
+    try {
+      const response = await fetch(healthUrl, {
+        method: "GET",
+        headers: { accept: "application/json" },
+        signal: AbortSignal.timeout(30_000),
+      });
+      lastStatus = response.status;
+      await response.body?.cancel().catch(() => undefined);
+      if (response.ok) {
+        routerWarmUntil = Date.now() + 8 * 60_000;
+        return;
+      }
+      if (![502, 503, 504].includes(response.status)) break;
+    } catch {
+      // A sleeping Render free service can reset or reject the first requests while waking.
+    }
+  }
+
+  throw new Error(
+    lastStatus
+      ? `Router IA no quedó disponible después de despertarlo (HTTP ${lastStatus}).`
+      : "Router IA no quedó disponible después de despertarlo.",
+  );
+}
+
 async function callRouter(
   provider: AiProviderConfig,
   messages: AgentMessage[],
   maxTokens = 1000,
   capability: RouterTaskCapability = "chat",
 ) {
+  await ensureRouterWarm(provider);
   const endpoint = getProviderEndpoint(provider.baseUrl, "chat/completions");
   const body = JSON.stringify({
     model: provider.model,

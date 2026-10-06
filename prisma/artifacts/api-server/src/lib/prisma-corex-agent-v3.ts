@@ -3,8 +3,8 @@ import {
   getProviderEndpoint,
   getProviderHeaders,
 } from "./ai-provider";
-import { corexWriteFile } from "./corex-tools";
-import { corexListTree, corexReadFile, corexSearch } from "./corex-ssh-read";
+import { corexReplaceExactBlock, corexWriteFile } from "./corex-tools";
+import { corexListTree, corexReadFile, corexReadFileRange, corexSearch } from "./corex-ssh-read";
 import {
   getCurrentCorexMap,
   mapCandidates,
@@ -40,6 +40,9 @@ type EvidenceFile = {
   content: string;
   truncated: boolean;
   score: number;
+  startLine?: number;
+  endLine?: number;
+  lineCount?: number;
 };
 
 type Evidence = {
@@ -262,14 +265,38 @@ async function gatherCorexEvidence(queryText: string): Promise<Evidence> {
   const files: EvidenceFile[] = [];
   for (const [path, score] of rankedPaths) {
     try {
-      const file = await corexReadFile(path);
+      const hitLine = searches
+        .flatMap((search) => search.results)
+        .find((hit) => hit.path === path && typeof hit.line === "number")?.line ?? null;
+
+      const full = await corexReadFile(path);
+      if (!full.truncated && full.content.length <= 24000) {
+        files.push({
+          path: full.path,
+          sha: full.sha,
+          size: full.size,
+          content: full.content,
+          truncated: false,
+          score,
+          startLine: 1,
+        });
+        continue;
+      }
+
+      const center = hitLine ?? 1;
+      const startLine = Math.max(1, center - 120);
+      const endLine = hitLine ? center + 220 : 360;
+      const ranged = await corexReadFileRange(path, startLine, endLine);
       files.push({
-        path: file.path,
-        sha: file.sha,
-        size: file.size,
-        content: file.content.slice(0, 9000),
-        truncated: file.truncated || file.content.length > 9000,
+        path: ranged.path,
+        sha: ranged.sha,
+        size: ranged.size,
+        content: ranged.content,
+        truncated: false,
         score,
+        startLine: ranged.startLine,
+        endLine: ranged.endLine,
+        lineCount: ranged.lineCount,
       });
     } catch {}
   }
@@ -290,7 +317,12 @@ function evidenceText(evidence: Evidence) {
     .join("\n\n");
 
   const filesText = evidence.files
-    .map((file) => `ARCHIVO ${file.path} SHA=${file.sha} SCORE=${file.score} SIZE=${file.size}\n${file.content}${file.truncated ? "\n[recortado]" : ""}`)
+    .map((file) => {
+      const range = file.startLine
+        ? ` LINES=${file.startLine}-${file.endLine ?? "?"}/${file.lineCount ?? "?"}`
+        : "";
+      return `ARCHIVO ${file.path} SHA=${file.sha} SCORE=${file.score} SIZE=${file.size}${range}\n${file.content}`;
+    })
     .join("\n\n");
 
   const treeText = evidence.tree
@@ -345,13 +377,11 @@ async function chooseMutationTarget(
 
   if (evidence.files.length === 1) {
     const file = evidence.files[0];
-    if (file.truncated) throw new Error("El único archivo candidato requiere una lectura más acotada antes de editarlo.");
     return { file, reason: "Es el único archivo encontrado por la investigación determinista para este caso." };
   }
 
   if (evidence.files[0].score > evidence.files[1].score) {
     const file = evidence.files[0];
-    if (file.truncated) throw new Error("El archivo candidato principal requiere una lectura más acotada antes de editarlo.");
     return { file, reason: "Es el candidato con más coincidencias independientes en la búsqueda determinista." };
   }
 
@@ -371,7 +401,6 @@ async function chooseMutationTarget(
   const reason = typeof parsed.reason === "string" ? parsed.reason.trim().slice(0, 700) : "";
   const file = evidence.files.find((candidate) => candidate.path === targetPath);
   if (!file) throw new Error("Prisma no pudo resolver con seguridad la ambigüedad entre archivos candidatos.");
-  if (file.truncated) throw new Error("El archivo elegido requiere una lectura más acotada antes de editarlo.");
   return { file, reason: reason || "Archivo seleccionado entre candidatos equivalentes." };
 }
 
@@ -463,32 +492,38 @@ async function runCorexMutation(
     return `No pude: ${error instanceof Error ? error.message : "salida inválida"}`;
   }
 
-  let applied: Awaited<ReturnType<typeof corexWriteFile>>;
+  let applied: Awaited<ReturnType<typeof corexReplaceExactBlock>>;
   try {
-    applied = await corexWriteFile({
+    applied = await corexReplaceExactBlock({
       path: target.file.path,
       expectedSha: target.file.sha,
-      content: generated.nextContent,
+      find: generated.find,
+      replace: generated.replace,
       message: generated.message,
     });
   } catch (firstError) {
     const detail = firstError instanceof Error ? firstError.message : "La escritura no validó.";
     try {
-      const fresh = await corexReadFile(target.file.path);
+      const startLine = target.file.startLine ?? 1;
+      const endLine = target.file.endLine ?? (startLine + 360);
+      const fresh = await corexReadFileRange(target.file.path, startLine, endLine);
       const freshFile: EvidenceFile = {
         path: fresh.path,
         sha: fresh.sha,
         size: fresh.size,
         content: fresh.content,
-        truncated: fresh.truncated,
+        truncated: false,
         score: target.file.score,
+        startLine: fresh.startLine,
+        endLine: fresh.endLine,
+        lineCount: fresh.lineCount,
       };
-      if (freshFile.truncated) throw new Error("El archivo cambió y ahora requiere una lectura más acotada.");
       generated = await generateEditPlanBounded(provider, requestText, freshFile, target.reason, detail);
-      applied = await corexWriteFile({
+      applied = await corexReplaceExactBlock({
         path: freshFile.path,
         expectedSha: freshFile.sha,
-        content: generated.nextContent,
+        find: generated.find,
+        replace: generated.replace,
         message: generated.message,
       });
       target = { ...target, file: freshFile };

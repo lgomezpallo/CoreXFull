@@ -80,7 +80,7 @@ async function tryExactReplacement(text: string) {
     importance: 90,
   }).catch(() => undefined);
 
-  return `Corregí CoreX en ${file.path}. Reemplacé ${replacement.from} por ${replacement.to}. Commit ${written.commitSha.slice(0, 12)}. El cambio se aplicó sobre el SHA que Prisma acababa de leer.`;
+  return "Listo.";
 }
 
 export async function runPrismaCorexAgent(input: {

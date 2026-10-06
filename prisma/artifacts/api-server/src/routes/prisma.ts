@@ -4,7 +4,8 @@ import {
   getChatProviderConfig,
   getImageProviderConfig,
 } from "../lib/ai-provider";
-import { corexToolStatus } from "../lib/corex-tools";
+import { corexManagedWriteSetup, corexToolStatus } from "../lib/corex-tools";
+import { getCurrentCorexMap } from "../lib/prisma-corex-map";
 import { logger } from "../lib/logger";
 import { runPrismaCorexAgent } from "../lib/prisma-corex-agent";
 import {
@@ -66,18 +67,32 @@ function parseRequest(value: unknown): ParsedRequest | null {
 
 router.get("/prisma/status", async (_req, res) => {
   try {
-    const memories = await listImportantMemories(["prisma", "corex"], 8);
+    const [memories, map, writeSetup] = await Promise.all([
+      listImportantMemories(["prisma", "corex"], 8),
+      getCurrentCorexMap(),
+      corexManagedWriteSetup(),
+    ]);
     res.json({
       ok: true,
-      engine: "corex-focused-v2",
+      engine: "corex-maintainer-foundation-v1",
+      foundation: {
+        locate: true,
+        persistentMap: { available: true, entries: map.entries.length, updatedAt: map.updatedAt },
+        rangedRead: true,
+        exactBlockEdit: true,
+        optimisticLocking: true,
+        postWriteVerification: true,
+        mapRefreshAfterWrite: true,
+        writeAuthorized: writeSetup.authorized,
+      },
       memory: {
         available: true,
         entriesLoaded: memories.length,
         scopes: [...new Set(memories.map((item) => item.scope))],
       },
-      corex: corexToolStatus(),
+      corex: { ...corexToolStatus(), writeAuthorized: writeSetup.authorized },
       vision: { acceptsImages: true, mimeTypes: [...IMAGE_MIME_TYPES] },
-      diagnosticMode: "deterministic-memory-search-read-synthesize",
+      diagnosticMode: "map-memory-search-ranged-read-safe-edit-verify",
     });
   } catch (error) {
     logger.error({ err: error }, "Prisma status check failed");

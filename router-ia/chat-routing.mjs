@@ -47,12 +47,18 @@ export function getChatCandidates(providers, { messages, requestedModel, request
   const capability = getChatCapability(messages, requestedCapability);
   const eligible = providers.filter((provider) => supportsCapability(provider, capability));
 
+  const ranked = sortByCapabilityPriority(eligible, capability);
+
   if (requestedModel && requestedModel !== "router-ia-auto") {
-    const explicit = eligible.find((provider) => provider.model === requestedModel);
-    return { capability, candidates: explicit ? [explicit] : [] };
+    const explicit = ranked.find((provider) => provider.model === requestedModel);
+    if (!explicit) return { capability, candidates: [] };
+    return {
+      capability,
+      candidates: [explicit, ...ranked.filter((provider) => provider !== explicit)],
+    };
   }
 
-  return { capability, candidates: sortByCapabilityPriority(eligible, capability) };
+  return { capability, candidates: ranked };
 }
 
 function classifyFailure(responseStatus) {
@@ -76,16 +82,44 @@ function plainChatToolMismatch(responseStatus, diagnostic, toolRequest) {
   );
 }
 
-function shouldTryNextProvider({ capability, failure, responseStatus, toolRequest, diagnostic }) {
+function shouldTryNextProvider({ failure, responseStatus }) {
   if (failure.transient) return true;
+  return [400, 404, 405, 409, 413, 415, 422].includes(responseStatus);
+}
 
-  const payloadCompatibilityStatus = [400, 404, 405, 415, 422].includes(responseStatus);
+function usableCompletionPayload(payload) {
+  if (!payload || typeof payload !== "object" || Array.isArray(payload)) return false;
+  if (!Array.isArray(payload.choices) || payload.choices.length === 0) return false;
+  return payload.choices.some((choice) => {
+    const message = choice?.message;
+    if (!message || typeof message !== "object") return false;
+    if (typeof message.content === "string" && message.content.trim()) return true;
+    if (Array.isArray(message.tool_calls) && message.tool_calls.length > 0) return true;
+    if (message.function_call && typeof message.function_call === "object") return true;
+    if (typeof message.refusal === "string" && message.refusal.trim()) return true;
+    return false;
+  });
+}
 
-  if (plainChatToolMismatch(responseStatus, diagnostic, toolRequest)) return true;
-  if (capability === "vision" && payloadCompatibilityStatus) return true;
-  if (toolRequest && (payloadCompatibilityStatus || responseStatus === 413)) return true;
-
-  return false;
+async function validateSuccessfulResponse(response) {
+  let text = "";
+  try {
+    text = await response.text();
+    const payload = JSON.parse(text);
+    if (!usableCompletionPayload(payload)) {
+      return { ok: false, diagnostic: "Provider returned HTTP 200 without a usable completion." };
+    }
+    return {
+      ok: true,
+      response: new Response(text, {
+        status: response.status,
+        statusText: response.statusText,
+        headers: response.headers,
+      }),
+    };
+  } catch {
+    return { ok: false, diagnostic: "Provider returned HTTP 200 with invalid JSON." };
+  }
 }
 
 function sanitizeDiagnostic(text) {
@@ -155,7 +189,6 @@ export async function requestChatWithFallback({
         kind: timeout ? "timeout" : "unreachable",
       });
       lastFailure = { status: timeout ? 504 : 502, code: timeout ? "provider_timeout" : "provider_unreachable" };
-      if (requestedModel && requestedModel !== "router-ia-auto") break;
       continue;
     }
 
@@ -175,13 +208,27 @@ export async function requestChatWithFallback({
         diagnostic,
       });
 
-      if (requestedModel && requestedModel !== "router-ia-auto") break;
-      if (!shouldTryNextProvider({ capability, failure, responseStatus, toolRequest, diagnostic })) break;
+      if (!shouldTryNextProvider({ failure, responseStatus })) break;
+      continue;
+    }
+
+    const validated = await validateSuccessfulResponse(response);
+    if (!validated.ok) {
+      recordProviderFailure(provider, "invalid");
+      lastFailure = { status: 502, code: "invalid_provider_response" };
+      console.warn("ROUTER_PROVIDER_ATTEMPT_FAILED", {
+        provider: provider?.name ?? provider?.provider ?? "unknown",
+        model: provider?.model ?? "unknown",
+        capability,
+        toolRequest,
+        status: 200,
+        diagnostic: validated.diagnostic,
+      });
       continue;
     }
 
     recordProviderSuccess(provider);
-    return { ok: true, response, provider, capability };
+    return { ok: true, response: validated.response, provider, capability };
   }
 
   return {
@@ -189,9 +236,6 @@ export async function requestChatWithFallback({
     status: lastFailure?.status ?? 502,
     code: lastFailure?.code ?? "provider_error",
     capability,
-    message:
-      requestedModel && requestedModel !== "router-ia-auto"
-        ? "The requested provider could not complete the request."
-        : `All available ${capability} providers failed.`,
+    message: `All available ${capability} providers failed.`,
   };
 }

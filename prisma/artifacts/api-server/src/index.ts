@@ -217,6 +217,18 @@ app.listen(port, (err) => {
   }
 
   logger.info({ port }, "Server listening");
+  try {
+    const provider = getChatProviderConfig();
+    logger.info(
+      { prismaChatProvider: { baseUrl: provider.baseUrl, model: provider.model } },
+      "Prisma chat provider configured",
+    );
+  } catch (error) {
+    logger.error(
+      { prismaChatProvider: { error: error instanceof Error ? error.message.slice(0, 500) : "unknown" } },
+      "Prisma chat provider configuration failed",
+    );
+  }
   void runOperationalSelfTest();
   void runAgentSmokeTest();
   void runCapabilityLadderSmokeTest();

@@ -7,6 +7,7 @@ const COOLDOWN_MS = Object.freeze({
   unreachable: 60_000,
   server: 2 * 60_000,
   rejected: 10 * 60_000,
+  invalid: 2 * 60_000,
 });
 
 const VERIFICATION_TIER = Object.freeze({

@@ -1,6 +1,7 @@
 import { corexReadFile, corexSearch } from "./corex-ssh-read";
 import { corexWriteFile } from "./corex-tools";
 import { rememberPrisma } from "./prisma-memory";
+import { refreshCorexMap } from "./prisma-corex-map";
 import {
   runPrismaCorexAgent as runPrismaCorexAgentV3,
   type PrismaAgentInputMessage,
@@ -79,6 +80,8 @@ async function tryExactReplacement(text: string) {
     content: `Cambio literal seguro: '${replacement.from}' -> '${replacement.to}' en ${file.path}. Commit ${written.commitSha}.`,
     importance: 90,
   }).catch(() => undefined);
+
+  await refreshCorexMap().catch(() => undefined);
 
   return "Listo.";
 }

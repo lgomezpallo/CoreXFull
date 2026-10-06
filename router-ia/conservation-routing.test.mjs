@@ -47,7 +47,7 @@ test("429 falls back to the next capable model and cooling model is skipped next
   assert.deepEqual(calls.map((url) => new URL(url).hostname), ["openrouter-secondary.example"]);
 });
 
-test("semantic 400 stops on the highest capability-priority model", async () => {
+test("semantic 400 exhausts compatible providers before failing", async () => {
   clearConservationState();
   const low = provider("low-semantic", 50);
   const high = provider("openrouter-high-semantic", 90);
@@ -64,6 +64,7 @@ test("semantic 400 stops on the highest capability-priority model", async () => 
   });
   assert.equal(result.ok, false);
   assert.equal(result.status, 400);
-  assert.equal(calls.length, 1);
+  assert.equal(calls.length, 2);
   assert.match(calls[0], /openrouter-high-semantic/);
+  assert.match(calls[1], /low-semantic/);
 });

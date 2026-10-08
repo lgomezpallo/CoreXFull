@@ -47,7 +47,7 @@ class Orchestrator:
             "image_generation","image_editing","long_context","fast",
         }
         subtasks = []
-        for index, item in enumerate((data.get("subtasks") or [])[: min(req.max_subtasks, 12)], 1):
+        for index, item in enumerate((data.get("subtasks") or [])[: min(req.max_subtasks, 50)], 1):
             task = str(item.get("task", "")).strip()
             if not task:
                 continue
@@ -75,7 +75,7 @@ class Orchestrator:
 
     def _fallback_plan(self, req: RouteRequest) -> TaskPlan:
         chunks = [x.strip(" -\t") for x in re.split(r"\n+|(?<=[.;])\s+", req.task) if x.strip()]
-        chunks = (chunks if len(chunks) > 1 else [req.task])[: min(req.max_subtasks, 6)]
+        chunks = (chunks if len(chunks) > 1 else [req.task])[: min(req.max_subtasks, 50)]
         subtasks = tuple(
             PlannedSubtask(
                 f"s{i}",
@@ -91,11 +91,14 @@ class Orchestrator:
         return TaskPlan(req.task[:200], subtasks, True)
 
     def _budget(self, importance: int) -> tuple[str | None, int | None]:
+        # Decomposition exists to turn a hard job into smaller jobs that cheaper,
+        # simpler resources can solve. Importance affects the ceiling only slightly;
+        # it must not automatically escalate a subtask to a strong/expensive model.
         if importance <= 30:
-            return "standard", 55
+            return "standard", 20
         if importance <= 65:
-            return None, 100
-        return "strong", None
+            return "standard", 25
+        return "standard", 30
 
 
     def _planning_request(self, req: RouteRequest) -> RouteRequest:
@@ -116,7 +119,7 @@ class Orchestrator:
             "Break the task into only the work items that are actually needed. "
             "Use roles from analysis or execution lanes. "
             "Importance is 0-100. Return JSON only. Maximum subtasks: "
-            + str(max(1, min(req.max_subtasks, 12)))
+            + str(max(1, min(req.max_subtasks, 50)))
             + "\nSchema: " + json.dumps(schema)
             + "\nTask: " + req.task
             + "\nContext: " + req.context
@@ -129,7 +132,7 @@ class Orchestrator:
             timeout_s=req.timeout_s,
             application_name=req.application_name,
             decompose=False,
-            max_strategic_cost=70,
+            max_strategic_cost=30,
         )
 
     def _verification_request(self, req: RouteRequest, results: list[dict]) -> RouteRequest:
@@ -145,7 +148,7 @@ class Orchestrator:
             preferred_model_class="standard",
             application_name=req.application_name,
             decompose=False,
-            max_strategic_cost=85,
+            max_strategic_cost=30,
         )
 
     def _composition_request(self, req: RouteRequest, results: list[dict], verification: str) -> RouteRequest:
@@ -158,16 +161,16 @@ class Orchestrator:
             + "\nPartial results: " + json.dumps(results, ensure_ascii=False)
             + "\nVerification: " + verification
         )
-        high_importance = any(int(item.get("importance", 0)) >= 70 for item in results)
         return RouteRequest(
             task=task,
             context=req.context,
             requirements=req.requirements,
             required_capabilities=frozenset({"chat", "reasoning"}),
-            preferred_model_class="strong" if high_importance else None,
+            preferred_model_class="standard",
             timeout_s=req.timeout_s,
             application_name=req.application_name,
             decompose=False,
+            max_strategic_cost=30,
         )
 
 

@@ -171,4 +171,40 @@ routes.put("/code/file", async (req, res) => {
   }
 });
 
+
+routes.post("/code/pull-request", async (req, res) => {
+  try {
+    if (process.env.PRISMA_CODE_WRITE_ENABLED !== "1")
+      return res.status(403).json({ error: "Escritura deshabilitada." });
+    const token = process.env.PRISMA_GITHUB_TOKEN?.trim();
+    if (!token) return res.status(503).json({ error: "Falta token GitHub." });
+    const repo = checkedRepo(req.body?.repo);
+    const branch = String(req.body?.branch ?? "");
+    if (!/^prisma\/[a-zA-Z0-9_-]{1,80}$/.test(branch))
+      throw new Error("Rama de trabajo inválida.");
+    const title = String(req.body?.title ?? "").trim().slice(0, 150);
+    if (!title) throw new Error("Se requiere título del cambio.");
+    const body = String(req.body?.description ?? "").slice(0, 4000);
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/pulls`,
+      {
+        method: "POST",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "Prisma-Code-Workspace",
+        },
+        body: JSON.stringify({ head: branch, base: "main", title, body, draft: true }),
+        signal: AbortSignal.timeout(15000),
+      },
+    );
+    if (!response.ok) throw new Error(`GitHub rechazó el PR: HTTP ${response.status}`);
+    const payload: any = await response.json();
+    return res.status(201).json({ number: payload.number, url: payload.html_url, draft: true });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Error creando PR." });
+  }
+});
+
 export default routes;

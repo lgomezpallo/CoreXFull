@@ -91,6 +91,41 @@ routes.get("/code/file", async (req, res) => {
 });
 
 
+
+routes.post("/code/branch", async (req, res) => {
+  try {
+    if (process.env.PRISMA_CODE_WRITE_ENABLED !== "1")
+      return res.status(403).json({ error: "Escritura deshabilitada." });
+    const token = process.env.PRISMA_GITHUB_TOKEN?.trim();
+    if (!token) return res.status(503).json({ error: "Falta token GitHub." });
+    const repo = checkedRepo(req.body?.repo);
+    const branch = String(req.body?.branch ?? "");
+    if (!/^prisma\/[a-zA-Z0-9_-]{1,80}$/.test(branch))
+      throw new Error("La rama debe comenzar con prisma/.");
+    const base = String(req.body?.base ?? "main");
+    if (base !== "main") throw new Error("Solo se crean ramas desde main.");
+    const root = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}`;
+    const baseData = await fetchGitHub(`${root}/git/ref/heads/main`);
+    const sha = String(baseData?.object?.sha ?? "");
+    if (!/^[a-f0-9]{40}$/.test(sha)) throw new Error("No se pudo leer el commit base.");
+    const response = await fetch(`${root}/git/refs`, {
+      method: "POST",
+      headers: {
+        Accept: "application/vnd.github+json",
+        Authorization: `Bearer ${token}`,
+        "Content-Type": "application/json",
+        "User-Agent": "Prisma-Code-Workspace",
+      },
+      body: JSON.stringify({ ref: `refs/heads/${branch}`, sha }),
+      signal: AbortSignal.timeout(15000),
+    });
+    if (!response.ok) throw new Error(`No se pudo crear la rama: HTTP ${response.status}`);
+    return res.status(201).json({ repository: `${owner}/${repo}`, branch, base, sha });
+  } catch (error) {
+    return res.status(400).json({ error: error instanceof Error ? error.message : "Error creando rama." });
+  }
+});
+
 routes.put("/code/file", async (req, res) => {
   try {
     if (process.env.PRISMA_CODE_WRITE_ENABLED !== "1")

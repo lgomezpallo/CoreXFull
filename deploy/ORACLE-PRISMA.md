@@ -6,8 +6,9 @@ Estos archivos NO ejecutan una migración ni modifican los servicios Render. Pri
 
 ```bash
 # Instalar Node 22 por el método oficial preferido del administrador (no viene automatizado).
-git clone https://github.com/lgomezpallo/CoreXFull.git /home/ubuntu/CoreXFull
+git clone --branch prisma-oracle-deploy-20261012 --single-branch https://github.com/lgomezpallo/CoreXFull.git /home/ubuntu/CoreXFull
 cd /home/ubuntu/CoreXFull
+git branch --show-current  # debe mostrar prisma-oracle-deploy-20261012
 bash deploy/oracle-prisma-build.sh
 ```
 
@@ -44,8 +45,24 @@ sudo journalctl -u prisma -n 80 --no-pager
 
 ## Recuperación
 
-Render permanece intacto. Ante un fallo: `sudo systemctl stop prisma`; restaurar DNS/proxy anterior si se cambió. No borrar datos ni credenciales. El Prisma actual arranca sin PostgreSQL para chat/health, pero NO tiene memoria de proyecto persistente ni herramientas reales de programación: esta migración no añade esas capacidades.
+Render permanece intacto. Ante un fallo: `sudo systemctl stop prisma`; restaurar DNS/proxy anterior si se cambió. No borrar datos ni credenciales. Esta rama incorpora herramientas de programación contra GitHub, pero requieren credenciales, configuración y validación real. La prueba de integración existente usa servicios simulados y no demuestra aún el funcionamiento en Oracle.
 
 ## Limitaciones
 
 Los scripts suponen /home/ubuntu/CoreXFull, Ubuntu y node ya instalado; ajustar rutas si difieren. La compilación en una VM pequeña puede agotar RAM: verificar `free -h` y `df -h` antes. Solo una prueba de compilación y una prueba de la app desplegada demostrarán compatibilidad real. Esta rama NO instala Prisma, no valida Oracle y no cambia main.
+
+## Configuración del agente de programación (no publicar claves)
+
+Agregar a `/etc/prisma/prisma.env` (usar los valores reales de tu instancia):
+
+```ini
+PRISMA_CODE_OWNER=lgomezpallo
+PRISMA_CODE_REPOS=I.achat.Full
+PRISMA_CODE_ACCESS_TOKEN=TOKEN_LARGO_ALEATORIO_PARA_PROTEGER_API
+PRISMA_GITHUB_TOKEN=TOKEN_GITHUB_CON_ACCESO_MINIMO_AL_REPO
+PRISMA_CODE_WRITE_ENABLED=0
+```
+
+Empezar con escritura deshabilitada. En ese estado la ruta `POST /api/code-agent/patch` acepta `apply:false` para vista previa. Tras verificar el funcionamiento y la protección de acceso, habilitar escritura poniendo `PRISMA_CODE_WRITE_ENABLED=1` y reiniciando el servicio. No abrir ni exponer el endpoint sin autenticación; el token viaja en la cabecera `X-Prisma-Code-Token`.
+
+**Antes de probar:** crear manualmente una rama `prisma/xxx` en el repositorio autorizado o usar el endpoint protegido `POST /api/code/branch`; el agente aún no crea ramas automáticamente. El modelo se consulta a través de `AI_ROUTER_*`, con capacidad `coding`.

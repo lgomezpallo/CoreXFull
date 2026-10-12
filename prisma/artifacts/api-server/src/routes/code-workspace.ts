@@ -100,9 +100,9 @@ routes.put("/code/file", async (req, res) => {
     const repo = checkedRepo(req.body?.repo);
     const path = checkedPath(req.body?.path);
     const branch = String(req.body?.branch ?? "");
-    if (!/^[a-zA-Z0-9_./-]{1,120}$/.test(branch) || branch.includes("..") ||
-        ["main", "master"].includes(branch.toLowerCase()))
+    if (!/^prisma\/[a-zA-Z0-9_-]{1,80}$/.test(branch))
       throw new Error("Solo se permite escribir en ramas de trabajo.");
+    // Never let the editor target the default branch or arbitrary refs.
     const expectedSha = String(req.body?.sha ?? "");
     if (!/^[a-f0-9]{40}$/.test(expectedSha))
       throw new Error("Se requiere SHA válido del archivo leído.");

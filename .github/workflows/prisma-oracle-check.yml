@@ -26,5 +26,7 @@ jobs:
         run: node --experimental-strip-types --test scripts/test-prisma-code-patch.mjs
       - name: Integrated Prisma agent preview (mock Router and GitHub)
         run: node --test scripts/test-prisma-code-agent.mjs
+      - name: Validate live smoke probe syntax
+        run: node --check scripts/prisma-live-smoke.mjs
       - name: Validate shell script
         run: bash -n deploy/oracle-prisma-build.sh

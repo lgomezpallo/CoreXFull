@@ -154,8 +154,8 @@ router.post("/prisma/chat", async (req, res) => {
       if (typeof content !== "string" || !content.trim()) throw new Error("Router devolvió una respuesta vacía.");
       res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
       res.setHeader("Cache-Control", "no-cache, no-transform");
-      res.write(`data: ${JSON.stringify({ content })}\\n\\n`);
-      res.write("data: [DONE]\\n\\n");
+      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      res.write("data: [DONE]\n\n");
       res.end();
       return;
     }

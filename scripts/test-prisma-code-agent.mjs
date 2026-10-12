@@ -6,12 +6,22 @@ import { once } from "node:events";
 
 test("Prisma creates a verified preview without writing to GitHub", { timeout: 45000 }, async () => {
   let writes = 0;
-  const fixture = "export const value = 1;\n";
+  let fixture = "export const value = 1;\n";
   const mock = http.createServer(async (req, res) => {
     const url = req.url || "";
     res.setHeader("Content-Type", "application/json");
     if (url.includes("/contents/fixture.ts")) {
-      if (req.method === "PUT") { writes++; res.end(JSON.stringify({commit:{sha:"test"}})); return; }
+      if (req.method === "PUT") {
+        let body = "";
+        for await (const chunk of req) body += chunk;
+        const put = JSON.parse(body);
+        assert.equal(put.branch, "prisma/testfix");
+        assert.equal(put.sha, "a".repeat(40));
+        fixture = Buffer.from(put.content, "base64").toString("utf8");
+        writes++;
+        res.end(JSON.stringify({commit:{sha:"test"},content:{sha:"b".repeat(40)}}));
+        return;
+      }
       res.end(JSON.stringify({type:"file",encoding:"base64",size:fixture.length,sha:"a".repeat(40),content:Buffer.from(fixture).toString("base64")}));
       return;
     }
@@ -33,7 +43,7 @@ test("Prisma creates a verified preview without writing to GitHub", { timeout: 4
       PRISMA_GITHUB_API_BASE:`http://127.0.0.1:${fakePort}`,
       AI_ROUTER_BASE_URL:`http://127.0.0.1:${fakePort}/api/v1`,
       AI_ROUTER_API_KEY:"fake-router-token",AI_ROUTER_CHAT_MODEL:"mock-coder",
-      PRISMA_CODE_WRITE_ENABLED:"0"},
+      PRISMA_CODE_WRITE_ENABLED:"1"},
     stdio:"ignore"
   });
   try {
@@ -58,6 +68,22 @@ test("Prisma creates a verified preview without writing to GitHub", { timeout: 4
       body:JSON.stringify({repo:"I.achat.Full",path:"fixture.ts",branch:"prisma/testfix",task:"Cambiar value a 2",apply:false})
     });
     assert.equal(denied.status,403);
+    const blocked=await fetch(`http://127.0.0.1:${appPort}/api/code-agent/patch`,{
+      method:"POST",headers:{"Content-Type":"application/json","X-Prisma-Code-Token":"local-test-secret"},
+      body:JSON.stringify({repo:"I.achat.Full",path:"fixture.ts",branch:"main",task:"Cambiar value a 2",apply:true})
+    });
+    assert.equal(blocked.status,400,"main must be rejected");
+    assert.equal(writes,0,"main rejection must happen before write");
+    const applied=await fetch(`http://127.0.0.1:${appPort}/api/code-agent/patch`,{
+      method:"POST",headers:{"Content-Type":"application/json","X-Prisma-Code-Token":"local-test-secret"},
+      body:JSON.stringify({repo:"I.achat.Full",path:"fixture.ts",branch:"prisma/testfix",task:"Cambiar value a 2",apply:true})
+    });
+    const commitResult=await applied.json();
+    assert.equal(applied.status,200,JSON.stringify(commitResult));
+    assert.equal(commitResult.applied,true);
+    assert.equal(commitResult.verified,true);
+    assert.equal(fixture,"export const value = 2;\\n".replace(/\\n/g,"\n"));
+    assert.equal(writes,1,"must commit exactly once");
   } finally {
     app.kill("SIGTERM");
     await new Promise(resolve=>{ if(app.exitCode!==null || app.signalCode!==null)resolve();else app.once("exit",resolve); });

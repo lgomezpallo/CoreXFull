@@ -22,5 +22,7 @@ jobs:
           node-version: '22'
       - name: Check installation and build
         run: bash deploy/oracle-prisma-build.sh
+      - name: Test controlled code patches
+        run: node --experimental-strip-types --test scripts/test-prisma-code-patch.mjs
       - name: Validate shell script
         run: bash -n deploy/oracle-prisma-build.sh

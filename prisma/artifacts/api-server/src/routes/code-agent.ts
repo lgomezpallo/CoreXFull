@@ -3,7 +3,7 @@ import { getChatProviderConfig, getProviderEndpoint, getProviderHeaders } from "
 import { applyExactPatch } from "../lib/code-patch";
 
 const router: IRouter = Router();
-const githubApiRoot = process.env.PRISMA_GITHUB_API_BASE?.trim().replace(/\\/$/, "") || "https://api.github.com";
+const githubApiRoot = (process.env.PRISMA_GITHUB_API_BASE || "https://api.github.com").replace(/\/+$/, "");
 const owner = process.env.PRISMA_CODE_OWNER?.trim() || "lgomezpallo";
 const allowed = (process.env.PRISMA_CODE_REPOS || "I.achat.Full,CoreXFull,R.outer.full").split(",").map(x => x.trim());
 function fail(message: string): never { throw new Error(message); }

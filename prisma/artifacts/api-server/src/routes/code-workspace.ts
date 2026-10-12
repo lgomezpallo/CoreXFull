@@ -130,9 +130,9 @@ routes.put("/code/file", async (req, res) => {
     );
     if (!response.ok) throw new Error(`GitHub rechazó el cambio: HTTP ${response.status}`);
     const saved: any = await response.json();
-    res.json({ branch, path, commit: saved.commit?.sha, sha: saved.content?.sha });
+    return res.json({ branch, path, commit: saved.commit?.sha, sha: saved.content?.sha });
   } catch (error) {
-    res.status(400).json({ error: error instanceof Error ? error.message : "No se pudo editar el archivo." });
+    return res.status(400).json({ error: error instanceof Error ? error.message : "No se pudo editar el archivo." });
   }
 });
 

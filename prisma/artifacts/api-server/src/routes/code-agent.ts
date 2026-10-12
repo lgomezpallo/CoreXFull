@@ -3,6 +3,7 @@ import { getChatProviderConfig, getProviderEndpoint, getProviderHeaders } from "
 import { applyExactPatch } from "../lib/code-patch";
 
 const router: IRouter = Router();
+const githubApiRoot = process.env.PRISMA_GITHUB_API_BASE?.trim().replace(/\\/$/, "") || "https://api.github.com";
 const owner = process.env.PRISMA_CODE_OWNER?.trim() || "lgomezpallo";
 const allowed = (process.env.PRISMA_CODE_REPOS || "I.achat.Full,CoreXFull,R.outer.full").split(",").map(x => x.trim());
 function fail(message: string): never { throw new Error(message); }
@@ -29,7 +30,7 @@ router.post("/code-agent/patch", async (req, res) => {
     if (!task || task.length > 2500) fail("Describí una corrección concreta (máximo 2500 caracteres).");
     const token = process.env.PRISMA_GITHUB_TOKEN?.trim();
     if (!token) fail("Falta PRISMA_GITHUB_TOKEN.");
-    const url = `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
+    const url = `${githubApiRoot}/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${path.split("/").map(encodeURIComponent).join("/")}`;
     const headers = {
       "Accept": "application/vnd.github+json",
       "User-Agent": "Prisma-Code-Agent",

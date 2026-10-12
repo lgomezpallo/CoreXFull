@@ -1,0 +1,26 @@
+name: Prisma Oracle compatibility
+on:
+  pull_request:
+    paths:
+      - 'prisma/**'
+      - 'deploy/oracle-prisma*'
+      - 'deploy/ORACLE-PRISMA.md'
+      - '.github/workflows/prisma-oracle-check.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+      - name: Check installation and build
+        run: bash deploy/oracle-prisma-build.sh
+      - name: Validate shell script
+        run: bash -n deploy/oracle-prisma-build.sh

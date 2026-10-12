@@ -90,4 +90,50 @@ routes.get("/code/file", async (req, res) => {
   }
 });
 
+
+routes.put("/code/file", async (req, res) => {
+  try {
+    if (process.env.PRISMA_CODE_WRITE_ENABLED !== "1")
+      return res.status(403).json({ error: "Escritura deshabilitada." });
+    const token = process.env.PRISMA_GITHUB_TOKEN?.trim();
+    if (!token) return res.status(503).json({ error: "Falta token GitHub de escritura." });
+    const repo = checkedRepo(req.body?.repo);
+    const path = checkedPath(req.body?.path);
+    const branch = String(req.body?.branch ?? "");
+    if (!/^[a-zA-Z0-9_./-]{1,120}$/.test(branch) || branch.includes("..") ||
+        ["main", "master"].includes(branch.toLowerCase()))
+      throw new Error("Solo se permite escribir en ramas de trabajo.");
+    const expectedSha = String(req.body?.sha ?? "");
+    if (!/^[a-f0-9]{40}$/.test(expectedSha))
+      throw new Error("Se requiere SHA válido del archivo leído.");
+    const nextContent = req.body?.content;
+    if (typeof nextContent !== "string" || Buffer.byteLength(nextContent, "utf8") > 180000)
+      throw new Error("Contenido inválido o demasiado grande.");
+    const message = String(req.body?.message ?? "Update file via Prisma").slice(0, 120);
+    const apiPath = path.split("/").map(encodeURIComponent).join("/");
+    const response = await fetch(
+      `https://api.github.com/repos/${encodeURIComponent(owner)}/${encodeURIComponent(repo)}/contents/${apiPath}`,
+      {
+        method: "PUT",
+        headers: {
+          Accept: "application/vnd.github+json",
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+          "User-Agent": "Prisma-Code-Workspace",
+        },
+        body: JSON.stringify({
+          branch, sha: expectedSha, message: `[Prisma] ${message}`,
+          content: Buffer.from(nextContent, "utf8").toString("base64"),
+        }),
+        signal: AbortSignal.timeout(15000),
+      }
+    );
+    if (!response.ok) throw new Error(`GitHub rechazó el cambio: HTTP ${response.status}`);
+    const saved: any = await response.json();
+    res.json({ branch, path, commit: saved.commit?.sha, sha: saved.content?.sha });
+  } catch (error) {
+    res.status(400).json({ error: error instanceof Error ? error.message : "No se pudo editar el archivo." });
+  }
+});
+
 export default routes;

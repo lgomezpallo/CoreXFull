@@ -1,5 +1,6 @@
 import { Router, type IRouter } from "express";
 import { getChatProviderConfig, getProviderEndpoint, getProviderHeaders } from "../lib/ai-provider";
+import { applyExactPatch } from "../lib/code-patch";
 
 const router: IRouter = Router();
 const owner = process.env.PRISMA_CODE_OWNER?.trim() || "lgomezpallo";
@@ -61,12 +62,7 @@ router.post("/code-agent/patch", async (req, res) => {
     let patch: any;
     try { patch = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*/i, "").replace(/\x60\x60\x60\s*$/, "")); }
     catch { fail("Router no produjo un parche JSON válido."); }
-    if (typeof patch?.find !== "string" || typeof patch?.replace !== "string" ||
-      !patch.find || patch.find === patch.replace || before.split(patch.find).length !== 2)
-      fail("El parche no coincide exactamente una sola vez con el archivo.");
-    const after = before.replace(patch.find, patch.replace);
-    if (after === before || Buffer.byteLength(after, "utf8") > 35000)
-      fail("Parche vacío o demasiado grande.");
+    const after = applyExactPatch(before, patch);
     // Default: preview. Writes require a second explicit opt-in and never reach main.
     if (!apply) return res.json({ applied: false, repository: `${owner}/${repo}`, path, branch,
       sha: file.sha, find: patch.find, replace: patch.replace, preview: after });

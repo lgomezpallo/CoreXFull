@@ -1,0 +1,22 @@
+[Unit]
+Description=Prisma standalone web app
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+User=ubuntu
+WorkingDirectory=/home/ubuntu/CoreXFull/prisma
+Environment=NODE_ENV=production
+Environment=PORT=8080
+EnvironmentFile=/etc/prisma/prisma.env
+ExecStart=/usr/bin/env bash -lc 'corepack pnpm start'
+Restart=on-failure
+RestartSec=5
+NoNewPrivileges=true
+ProtectSystem=full
+ProtectHome=false
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

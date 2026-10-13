@@ -3,6 +3,8 @@ import {
   AiProviderConfigurationError,
   getChatProviderConfig,
   getImageProviderConfig,
+  getProviderEndpoint,
+  getProviderHeaders,
 } from "../lib/ai-provider";
 import { corexManagedWriteSetup, corexToolStatus } from "../lib/corex-tools";
 import { getCurrentCorexMap } from "../lib/prisma-corex-map";
@@ -128,6 +130,35 @@ router.post("/prisma/chat", async (req, res) => {
     .find(({ message }) => message.role === "user")?.index;
 
   try {
+    // Standalone programming deployment: legacy CoreX memory must not block basic chat.
+    // Memory-backed mode stays unchanged unless the operator opts in explicitly.
+    if (process.env.PRISMA_STANDALONE === "1") {
+      const response = await fetch(getProviderEndpoint(provider.baseUrl, "chat/completions"), {
+        method: "POST",
+        headers: getProviderHeaders(provider),
+        body: JSON.stringify({
+          model: provider.model,
+          router_capability: "coding",
+          messages: [
+            { role: "system", content: "Sos Prisma, asistente de programación. Contestá en español. No afirmes haber editado archivos si no utilizaste las herramientas de programación." },
+            ...input.messages.map(({ role, content }) => ({ role, content })),
+          ],
+          stream: false,
+          max_tokens: 1200,
+        }),
+        signal: AbortSignal.timeout(120000),
+      });
+      if (!response.ok) throw new Error(`Router respondió HTTP ${response.status}`);
+      const payload = await response.json() as { choices?: Array<{ message?: { content?: unknown } }> };
+      const content = payload.choices?.[0]?.message?.content;
+      if (typeof content !== "string" || !content.trim()) throw new Error("Router devolvió una respuesta vacía.");
+      res.setHeader("Content-Type", "text/event-stream; charset=utf-8");
+      res.setHeader("Cache-Control", "no-cache, no-transform");
+      res.write(`data: ${JSON.stringify({ content })}\n\n`);
+      res.write("data: [DONE]\n\n");
+      res.end();
+      return;
+    }
     await ensurePrismaMemory();
 
     let agentMessages = input.messages;

@@ -1,0 +1,68 @@
+# Prisma en Oracle — traslado reversible
+
+Estos archivos NO ejecutan una migración ni modifican los servicios Render. Prisma existente está en `CoreXFull/prisma` y requiere Node.js >=22 y pnpm 10.26.1.
+
+## Preparar (en VM con Ubuntu, usuario ubuntu)
+
+```bash
+# Instalar Node 22 por el método oficial preferido del administrador (no viene automatizado).
+git clone --branch prisma-oracle-deploy-20261012 --single-branch https://github.com/lgomezpallo/CoreXFull.git /home/ubuntu/CoreXFull
+cd /home/ubuntu/CoreXFull
+git branch --show-current  # debe mostrar prisma-oracle-deploy-20261012
+bash deploy/oracle-prisma-build.sh
+```
+
+Si el repositorio es privado, usar credenciales de GitHub con alcance mínimo; nunca ponerlas en la línea de comandos ni en los archivos de la app.
+
+## Secretos y arranque
+
+```bash
+sudo install -d -m 700 /etc/prisma
+sudo install -m 600 /dev/null /etc/prisma/prisma.env
+sudoedit /etc/prisma/prisma.env
+```
+
+Variables mínimas que se deben configurar con valores reales y probados:
+
+```ini
+AI_ROUTER_BASE_URL=https://ROUTER_REAL/api/v1
+AI_ROUTER_API_KEY=TOKEN_REAL
+AI_ROUTER_CHAT_MODEL=router-ia-auto
+```
+
+No colocar claves de proveedores en Prisma. Si Router está en la misma Oracle, usar su URL local real y proteger el puerto. No elegir URL de Router sin verificar contrato y conectividad.
+
+```bash
+sudo cp /home/ubuntu/CoreXFull/deploy/oracle-prisma.service /etc/systemd/system/prisma.service
+sudo systemctl daemon-reload
+sudo systemctl enable --now prisma
+sudo systemctl status prisma --no-pager
+curl -fsS http://127.0.0.1:8080/api/healthz
+sudo journalctl -u prisma -n 80 --no-pager
+```
+
+**No exponer el puerto 8080 públicamente.** Servir detrás del proxy HTTPS ya disponible (por ejemplo Caddy) con autenticación apropiada, sin pisar los dominios actuales. Antes de cambiar DNS, probar host/HTTPS y una llamada real al Router, además de la ruta healthz.
+
+## Recuperación
+
+Render permanece intacto. Ante un fallo: `sudo systemctl stop prisma`; restaurar DNS/proxy anterior si se cambió. No borrar datos ni credenciales. Esta rama incorpora herramientas de programación contra GitHub, pero requieren credenciales, configuración y validación real. La prueba de integración existente usa servicios simulados y no demuestra aún el funcionamiento en Oracle.
+
+## Limitaciones
+
+Los scripts suponen /home/ubuntu/CoreXFull, Ubuntu y node ya instalado; ajustar rutas si difieren. La compilación en una VM pequeña puede agotar RAM: verificar `free -h` y `df -h` antes. Solo una prueba de compilación y una prueba de la app desplegada demostrarán compatibilidad real. Esta rama NO instala Prisma, no valida Oracle y no cambia main.
+
+## Configuración del agente de programación (no publicar claves)
+
+Agregar a `/etc/prisma/prisma.env` (usar los valores reales de tu instancia):
+
+```ini
+PRISMA_CODE_OWNER=lgomezpallo
+PRISMA_CODE_REPOS=I.achat.Full
+PRISMA_CODE_ACCESS_TOKEN=TOKEN_LARGO_ALEATORIO_PARA_PROTEGER_API
+PRISMA_GITHUB_TOKEN=TOKEN_GITHUB_CON_ACCESO_MINIMO_AL_REPO
+PRISMA_CODE_WRITE_ENABLED=0
+```
+
+Empezar con escritura deshabilitada. En ese estado la ruta `POST /api/code-agent/patch` acepta `apply:false` para vista previa. Tras verificar el funcionamiento y la protección de acceso, habilitar escritura poniendo `PRISMA_CODE_WRITE_ENABLED=1` y reiniciando el servicio. No abrir ni exponer el endpoint sin autenticación; el token viaja en la cabecera `X-Prisma-Code-Token`.
+
+**Antes de probar:** crear manualmente una rama `prisma/xxx` en el repositorio autorizado o usar el endpoint protegido `POST /api/code/branch`; el agente aún no crea ramas automáticamente. El modelo se consulta a través de `AI_ROUTER_*`, con capacidad `coding`.

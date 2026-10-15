@@ -44,7 +44,7 @@ jobs:
               def chunk(tag, data):
                   return struct.pack(">I",len(data))+tag+data+struct.pack(">I",zlib.crc32(tag+data)&0xffffffff)
               w=h=12
-              raw=b"".join(b"\\x00"+b"\\xff\\x00\\x00"*w for _ in range(h))
+              raw=b"".join(bytes([0])+bytes([255,0,0])*w for _ in range(h))
               return bytes([137,80,78,71,13,10,26,10])+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
           from iachat.attachments import extract_images
           from types import SimpleNamespace

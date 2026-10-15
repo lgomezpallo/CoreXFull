@@ -27,7 +27,7 @@ jobs:
                   return struct.pack(">I",len(data))+tag+data+struct.pack(">I",zlib.crc32(tag+data)&0xffffffff)
               w=h=12
               raw=b"".join(b"\\x00"+b"\\xff\\x00\\x00"*w for _ in range(h))
-              return b"\\x89PNG\\r\\n\\x1a\\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
+              return bytes([137,80,78,71,13,10,26,10])+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
           from iachat.attachments import extract_images
           from types import SimpleNamespace
           payload=base64.b64encode(png()).decode()

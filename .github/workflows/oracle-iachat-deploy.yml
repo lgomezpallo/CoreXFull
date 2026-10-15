@@ -27,6 +27,7 @@ jobs:
             if [ "$rc" -ne 0 ] && [ "$changed" -eq 1 ]; then
               cp "$backup/app.py" iachat/app.py
               cp "$backup/store.py" iachat/store.py
+              cp "$backup/backend.py" iachat/backend.py
               sudo -n systemctl restart iachat.service || true
               echo "IACHAT_MULTIMODAL_ROLLED_BACK"
             fi
@@ -35,10 +36,12 @@ jobs:
           trap cleanup EXIT
           cp iachat/app.py "$backup/app.py"
           cp iachat/store.py "$backup/store.py"
+          cp iachat/backend.py "$backup/backend.py"
           GIT_SSH_COMMAND='ssh -i /home/ubuntu/.ssh/github_iachat -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' git fetch --no-tags git@github.com:lgomezpallo/I.achat.Full.git main
           git show FETCH_HEAD:iachat/app.py > "$backup/new-app.py"
           git show FETCH_HEAD:iachat/store.py > "$backup/new-store.py"
-          python3 - "$backup/new-app.py" "$backup/new-store.py" <<'PY'
+          git show FETCH_HEAD:iachat/backend.py > "$backup/new-backend.py"
+          python3 - "$backup/new-app.py" "$backup/new-store.py" "$backup/new-backend.py" <<'PY'
           import sys
           from pathlib import Path
           for p in sys.argv[1:]:
@@ -50,6 +53,7 @@ jobs:
           PY
           cp "$backup/new-app.py" iachat/app.py
           cp "$backup/new-store.py" iachat/store.py
+          cp "$backup/new-backend.py" iachat/backend.py
           changed=1
           sudo -n systemctl restart iachat.service
           sleep 3

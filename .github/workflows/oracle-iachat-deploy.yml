@@ -1,4 +1,4 @@
-name: Deploy IAchat multimodal history
+name: Deploy IAchat multimodal follow-up context
 on:
   push:
     branches: [prisma/code-agent-json-diagnostics-20261014]

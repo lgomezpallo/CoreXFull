@@ -1,0 +1,60 @@
+name: Deploy Prisma parser correction
+on:
+  push:
+    branches: [prisma/code-agent-json-diagnostics-20261014]
+    paths: [.github/workflows/oracle-prisma-deploy.yml]
+permissions:
+  contents: read
+concurrency:
+  group: oracle-prisma-deploy
+  cancel-in-progress: false
+jobs:
+  deploy:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 10
+    steps:
+      - name: Apply targeted correction, build and verify with rollback
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd /home/ubuntu/CoreXFull/prisma
+          target=artifacts/api-server/src/routes/code-agent.ts
+          backup=$(mktemp /tmp/prisma-code-agent.XXXXXXXX.ts)
+          cp "$target" "$backup"
+          deployed=0
+          rollback() {
+            rc=$?
+            if [ "$rc" -ne 0 ]; then
+              echo "Deployment failed; restoring original Prisma source and build"
+              cp "$backup" "$target"
+              pnpm --filter @workspace/api-server build || true
+              if [ "$deployed" -eq 1 ]; then sudo -n systemctl restart prisma.service || true; fi
+            fi
+            rm -f "$backup"
+          }
+          trap rollback EXIT
+          curl -fsSL --max-time 30 -o /tmp/prisma-parser-source-$$.ts "https://raw.githubusercontent.com/lgomezpallo/CoreXFull/e8901207d7b0eb4b1f605725c30dbc7b33c5b2c9/prisma/artifacts/api-server/src/routes/code-agent.ts"
+          python3 - "$target" "/tmp/prisma-parser-source-$$.ts" <<'PY'
+          import sys
+          from pathlib import Path
+          local=Path(sys.argv[1]); candidate=Path(sys.argv[2])
+          old=local.read_text(); new=candidate.read_text()
+          start="    let patch: any;"
+          end="    const after = applyExactPatch(before, patch);"
+          assert old.count(start)==1 and old.count(end)==1, "Local Prisma parser differs; refusing to overwrite"
+          assert new.count(end)==1 and "finish_reason=" in new, "Unexpected candidate"
+          a=old.index(start); b=old.index(end,a)
+          x=new.index("    // Parse plain or fenced JSON;"); y=new.index(end,x)
+          updated=old[:a]+new[x:y]+old[b:]
+          assert updated!=old
+          local.write_text(updated)
+          print("Targeted parser update applied")
+          PY
+          rm -f /tmp/prisma-parser-source-$$.ts
+          pnpm --filter @workspace/api-server build
+          sudo -n systemctl restart prisma.service
+          deployed=1
+          sleep 4
+          systemctl is-active --quiet prisma.service
+          curl -fsS --max-time 10 http://127.0.0.1:8080/healthz >/dev/null
+          echo "PRISMA_DEPLOY_VERIFIED"

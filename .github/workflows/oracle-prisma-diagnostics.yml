@@ -37,5 +37,8 @@ jobs:
           git -C /home/ubuntu/CoreXFull/prisma rev-parse --short HEAD 2>/dev/null || true
           echo "Working tree changes (filenames only):"
           git -C /home/ubuntu/CoreXFull/prisma status --short 2>/dev/null | head -30 || true
+          echo "Build prerequisites:"
+          test -d /home/ubuntu/CoreXFull/prisma/node_modules && echo "Prisma node_modules: present" || echo "Prisma node_modules: missing"
+          test -f /home/ubuntu/CoreXFull/prisma/artifacts/api-server/build.mjs && echo "Build script: present" || echo "Build script: missing"
           echo "Prisma service metadata:"
           systemctl show prisma.service -p ActiveState -p SubState -p User -p WorkingDirectory --no-pager

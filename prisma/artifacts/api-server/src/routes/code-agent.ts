@@ -46,7 +46,7 @@ router.post("/code-agent/patch", async (req, res) => {
     const before = Buffer.from(String(file.content).replace(/\s/g, ""), "base64").toString("utf8");
     if (before.includes("\0")) fail("Archivo binario no permitido.");
     const provider = getChatProviderConfig();
-    const aiResp = await fetch(getProviderEndpoint(provider.baseUrl, "chat/completions"), {
+    let aiResp = await fetch(getProviderEndpoint(provider.baseUrl, "chat/completions"), {
       method: "POST", headers: getProviderHeaders(provider),
       body: JSON.stringify({
         model: provider.model, router_capability: "coding", stream: false, max_tokens: 6000,
@@ -57,6 +57,20 @@ router.post("/code-agent/patch", async (req, res) => {
         ],
       }), signal: AbortSignal.timeout(120000),
     });
+    // Retry once without JSON mode only when the Router returns a gateway error.
+    if (aiResp.status === 502) {
+      aiResp = await fetch(getProviderEndpoint(provider.baseUrl, "chat/completions"), {
+        method: "POST", headers: getProviderHeaders(provider),
+        body: JSON.stringify({
+          model: provider.model, router_capability: "coding", stream: false, max_tokens: 6000,
+          messages: [
+            { role: "system", content: "Respondé exclusivamente JSON válido con find y replace, ambas strings. Sin markdown." },
+            { role: "user", content: `TAREA: ${task}\nARCHIVO: ${path}\nCONTENIDO:\n${before}` },
+          ],
+        }), signal: AbortSignal.timeout(120000),
+      });
+      if (!aiResp.ok) fail(`Router falló con JSON obligatorio (502) y sin JSON obligatorio (HTTP ${aiResp.status})`);
+    }
     if (!aiResp.ok) fail(`Router falló (HTTP ${aiResp.status})`);
     const ai: any = await aiResp.json();
     const raw = ai.choices?.[0]?.message?.content;

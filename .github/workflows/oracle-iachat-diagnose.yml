@@ -28,10 +28,10 @@ jobs:
                   con=sqlite3.connect('file:'+str(db)+'?mode=ro',uri=True)
                   tables={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
                   if not {'conversations','conversation_index'}.issubset(tables): continue
-                  row=con.execute("SELECT c.id,c.history,i.updated_at FROM conversations c JOIN conversation_index i ON c.id=i.id WHERE c.owner='admin' AND i.owner='admin' ORDER BY i.updated_at DESC LIMIT 1").fetchone()
+                  row=con.execute("SELECT c.id,c.history,i.updated_at FROM conversations c JOIN conversation_index i ON c.id=i.id WHERE c.owner='admin' AND i.owner='admin' AND EXISTS (SELECT 1 FROM image_attachments a WHERE a.conversation_id=c.id AND a.owner=c.owner) ORDER BY i.updated_at DESC LIMIT 1").fetchone()
                   if not row: continue
                   found=True
-                  print('LATEST_CONVERSATION_FOUND',flush=True)
+                  print('LATEST_IMAGE_CONVERSATION_FOUND',flush=True)
                   cid,raw,_=row
                   history=json.loads(raw)
                   print('MESSAGE_COUNT',len(history),flush=True)
@@ -44,7 +44,7 @@ jobs:
                   break
               except (sqlite3.Error,ValueError) as e:
                   print('DB_READ_ERROR',type(e).__name__,flush=True)
-          if not found: raise SystemExit('NO_ADMIN_CONVERSATION_FOUND')
+          if not found: raise SystemExit('NO_IMAGE_CONVERSATION_FOUND')
           PY
       - name: Publish diagnostic status
         if: ${{ always() }}

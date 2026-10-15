@@ -80,7 +80,7 @@ jobs:
               print("SECOND_IMAGE_ANSWER",repr(second[:100]),flush=True)
               import re
               def matches_color(answer, word):
-                  return bool(re.search(r"\\b"+word+r"\\b",answer.casefold()))
+                  return bool(re.search(r"\b"+word+r"\b",answer.casefold()))
               if not matches_color(first,"rojo") or not matches_color(second,"azul"):
                   raise AssertionError("vision_consecutive_images_incorrect")
               print("VISION_CONSECUTIVE_IMAGES_OK",round(monotonic()-start,1),flush=True)

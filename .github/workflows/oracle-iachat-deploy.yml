@@ -1,4 +1,4 @@
-name: Deploy IAchat image error diagnostics
+name: Deploy IAchat image previews
 on:
   push:
     branches: [prisma/code-agent-json-diagnostics-20261014]
@@ -44,6 +44,8 @@ jobs:
           assert "IAchat display failure after successful send" in s
           assert "remove.setAttribute('aria-label','Quitar '+f.name)" in s
           assert "selectedFiles=[];fileInput.value='';imageInput.value='';showSelectedAttachments()" in s
+          assert "className=\'sent-image\'" in s
+          assert "payload.attachments.forEach" in s
           compile(s, sys.argv[1], 'exec')
           print("IAchat source validated")
           PY
@@ -56,4 +58,5 @@ jobs:
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'var selectedFiles=\[\]'
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat upload failure'
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat display failure after successful send'
-          echo "IACHAT_IMAGE_DIAGNOSTICS_DEPLOY_VERIFIED"
+          curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q "className=\'sent-image\'"
+          echo "IACHAT_IMAGE_PREVIEWS_DEPLOY_VERIFIED"

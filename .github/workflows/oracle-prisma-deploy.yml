@@ -35,7 +35,7 @@ jobs:
             rm -f "$backup"
           }
           trap rollback EXIT
-          curl -fsSL --max-time 30 -o /tmp/prisma-parser-source-$$.ts "https://raw.githubusercontent.com/lgomezpallo/CoreXFull/a192c44dbdca45810e894472be7c1c8d8451de6d/prisma/artifacts/api-server/src/routes/code-agent.ts"
+          curl -fsSL --max-time 30 -o /tmp/prisma-parser-source-$$.ts "https://raw.githubusercontent.com/lgomezpallo/CoreXFull/ac9949e80de29ba38bb150dc5a4fbd5a2ca2e2be/prisma/artifacts/api-server/src/routes/code-agent.ts"
           python3 - "$target" "/tmp/prisma-parser-source-$$.ts" <<'PY'
           import sys
           from pathlib import Path
@@ -53,6 +53,13 @@ jobs:
           assert updated.count(original)==1
           if replacement not in updated:
               updated=updated.replace(original,replacement)
+          request_start="    const aiResp = await fetch("
+          request_end="    const ai: any = await aiResp.json();"
+          assert updated.count(request_start)==1 and new.count("    let aiResp = await fetch(")==1
+          assert updated.count(request_end)==1 and new.count(request_end)==1
+          i=updated.index(request_start); j=updated.index(request_end,i)
+          k=new.index("    let aiResp = await fetch("); m=new.index(request_end,k)
+          updated=updated[:i]+new[k:m]+updated[j:]
           assert updated!=old
           local.write_text(updated)
           print("Targeted parser update applied")

@@ -1,4 +1,4 @@
-name: Diagnose IAchat image request
+name: Test IAchat Router vision end-to-end
 on:
   push:
     branches: [prisma/code-agent-json-diagnostics-20261014]
@@ -15,14 +15,38 @@ jobs:
         run: |
           set -euo pipefail
           echo "=== SERVICES ==="
-          systemctl is-active iachat.service router.service || true
-          echo "=== LOCAL HEALTH ==="
-          curl -sS --max-time 8 -o /dev/null -w 'iachat=%{http_code} duration=%{time_total}\n' http://127.0.0.1:8000/health || true
-          curl -sS --max-time 8 -o /dev/null -w 'router=%{http_code} duration=%{time_total}\n' http://127.0.0.1:8010/health || true
-          echo "=== DEPLOYED UI ==="
-          curl -fsS --max-time 8 http://127.0.0.1:8000/ | grep -q 'var selectedFiles=\[\]' && echo "attachment_ui=current" || echo "attachment_ui=old"
-          echo "=== SERVICE ERRORS (FILTERED) ==="
-          sudo -n journalctl -u iachat.service --since '2026-10-15 09:25:00' --until '2026-10-15 10:00:00' --no-pager -o cat 2>/dev/null | grep -Ei 'Traceback|Exception|ERROR|timeout|HTTP/1.1|/api/chat' | sed -E 's/(Bearer|token|key|password)[=: ]+[^ ]+/[REDACTED]/Ig' | tail -35 || true
-          echo "=== PROXY TIMEOUT SETTINGS ==="
-          sudo -n nginx -T 2>/dev/null | grep -E 'proxy_(read|send|connect)_timeout|client_max_body_size' | sort -u || true
-          echo "DIAGNOSIS_COMPLETE"
+          systemctl is-active iachat.service router.service
+          echo "=== REAL VISION TEST VIA IAchat BACKEND ==="
+          cd /home/ubuntu/Proyecto/Aplicaciones/IAchat
+          python3 - <<'PY'
+          import base64, importlib, os, struct, sys, zlib
+          from pathlib import Path
+          from time import monotonic
+          def png():
+              def chunk(tag, data):
+                  return struct.pack(">I",len(data))+tag+data+struct.pack(">I",zlib.crc32(tag+data)&0xffffffff)
+              w=h=12
+              raw=b"".join(b"\\x00"+b"\\xff\\x00\\x00"*w for _ in range(h))
+              return b"\\x89PNG\\r\\n\\x1a\\n"+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
+          from iachat.attachments import extract_images
+          from types import SimpleNamespace
+          payload=base64.b64encode(png()).decode()
+          images,names=extract_images([SimpleNamespace(name="test-red.png",content_base64=payload)])
+          print("IMAGE_VALIDATION_OK",names,flush=True)
+          from iachat.backend import RouterFirstBackend
+          env_file=Path("/etc/iachat-router.env")
+          if env_file.exists():
+              for line in env_file.read_text().splitlines():
+                  if line.startswith("ROUTER_TOKEN="):
+                      os.environ["ROUTER_TOKEN"]=line.partition("=")[2].strip().strip('"').strip("'")
+                  if line.startswith("ROUTER_URL="):
+                      os.environ["ROUTER_URL"]=line.partition("=")[2].strip().strip('"').strip("'")
+          os.environ.setdefault("ROUTER_URL","http://127.0.0.1:8010")
+          start=monotonic()
+          try:
+              answer=RouterFirstBackend(timeout_s=45).answer([{"role":"user","content":"¿De qué color es el cuadrado de esta imagen? Respondé en una frase breve."}],images=images)
+              print("VISION_TEST_OK", "elapsed_seconds",round(monotonic()-start,1),"answer",answer[:180],flush=True)
+          except Exception as exc:
+              print("VISION_TEST_FAILED","elapsed_seconds",round(monotonic()-start,1),"error_type",type(exc).__name__,"error_code",str(exc)[:120],flush=True)
+              sys.exit(1)
+          PY

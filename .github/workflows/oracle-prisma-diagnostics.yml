@@ -1,13 +1,18 @@
 name: Oracle Prisma diagnostics
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - prisma/code-agent-json-diagnostics-20261014
+    paths:
+      - .github/workflows/oracle-prisma-diagnostics.yml
 
 permissions:
   contents: read
 
 jobs:
   inspect:
-    runs-on: [self-hosted, linux, x64, oracle-prisma]
+    runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     steps:
       - name: Inspect Prisma without modifying services

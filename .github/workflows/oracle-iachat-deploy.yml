@@ -41,6 +41,7 @@ jobs:
           s=Path(sys.argv[1]).read_text()
           assert 'var selectedFiles=[]' in s
           assert "IAchat upload failure" in s
+          assert "IAchat display failure after successful send" in s
           assert "remove.setAttribute('aria-label','Quitar '+f.name)" in s
           assert "selectedFiles=[];fileInput.value='';imageInput.value='';showSelectedAttachments()" in s
           compile(s, sys.argv[1], 'exec')
@@ -54,4 +55,5 @@ jobs:
           curl -fsS --max-time 10 http://127.0.0.1:8000/health | grep -q '"status":"ok"'
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'var selectedFiles=\[\]'
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat upload failure'
+          curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat display failure after successful send'
           echo "IACHAT_IMAGE_DIAGNOSTICS_DEPLOY_VERIFIED"

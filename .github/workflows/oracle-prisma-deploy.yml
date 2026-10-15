@@ -41,7 +41,7 @@ jobs:
           from pathlib import Path
           local=Path(sys.argv[1]); candidate=Path(sys.argv[2])
           old=local.read_text(); new=candidate.read_text()
-          start="    let patch: any;"
+          start="    // Parse plain or fenced JSON;"
           end="    const after = applyExactPatch(before, patch);"
           assert old.count(start)==1 and old.count(end)==1, "Local Prisma parser differs; refusing to overwrite"
           assert new.count(end)==1 and "finish_reason=" in new, "Unexpected candidate"
@@ -51,7 +51,8 @@ jobs:
           original='model: provider.model, router_capability: "coding", stream: false, max_tokens: 6000,'
           replacement=original+chr(10)+'        response_format: { type: "json_object" },'
           assert updated.count(original)==1
-          updated=updated.replace(original,replacement)
+          if replacement not in updated:
+              updated=updated.replace(original,replacement)
           assert updated!=old
           local.write_text(updated)
           print("Targeted parser update applied")

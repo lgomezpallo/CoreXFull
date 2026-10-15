@@ -27,6 +27,7 @@ jobs:
             if [ "$rc" -ne 0 ]; then
               echo "Deployment failed; restoring original Prisma source and build"
               cp "$backup" "$target"
+              sudo -n chown -R ubuntu:ubuntu artifacts/api-server/dist
               pnpm --filter @workspace/api-server build || true
               if [ "$deployed" -eq 1 ]; then sudo -n systemctl restart prisma.service || true; fi
             fi
@@ -51,6 +52,8 @@ jobs:
           print("Targeted parser update applied")
           PY
           rm -f /tmp/prisma-parser-source-$$.ts
+          sudo -n chown -R ubuntu:ubuntu artifacts/api-server/dist
+          test -w artifacts/api-server/dist
           pnpm --filter @workspace/api-server build
           sudo -n systemctl restart prisma.service
           deployed=1

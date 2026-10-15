@@ -18,7 +18,15 @@ jobs:
           systemctl is-active iachat.service router.service
           echo "=== REAL VISION TEST VIA IAchat BACKEND ==="
           cd /home/ubuntu/Proyecto/Aplicaciones/IAchat
-          python3 - <<'PY'
+          echo '=== PYTHON RUNTIMES ==='
+          systemctl show iachat.service -p ExecStart -p WorkingDirectory --no-pager | sed -E 's/(password|token|key)=[^ ;]+/\\1=[REDACTED]/Ig'
+          PYTHON_BIN=''
+          for candidate in /home/ubuntu/Proyecto/Aplicaciones/IAchat/.venv/bin/python /home/ubuntu/Proyecto/Aplicaciones/IAchat/venv/bin/python /home/ubuntu/Proyecto/Aplicaciones/IAchat/.venv/bin/python3 /home/ubuntu/Proyecto/Aplicaciones/IAchat/venv/bin/python3; do
+            if [ -x "$candidate" ] && "$candidate" -c 'import httpx' >/dev/null 2>&1; then PYTHON_BIN="$candidate"; break; fi
+          done
+          if [ -z "$PYTHON_BIN" ]; then echo 'IACHAT_PYTHON_ENV_NOT_FOUND'; exit 1; fi
+          echo "PYTHON_RUNTIME=$PYTHON_BIN"
+          "$PYTHON_BIN" - <<'PY'
           import base64, importlib, os, struct, sys, zlib
           from pathlib import Path
           from time import monotonic

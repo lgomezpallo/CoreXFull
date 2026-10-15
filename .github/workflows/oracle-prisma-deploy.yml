@@ -48,7 +48,7 @@ jobs:
           x=new.index("    // Parse plain or fenced JSON;"); y=new.index(end,x)
           updated=old[:a]+new[x:y]+old[b:]
           original='model: provider.model, router_capability: "coding", stream: false, max_tokens: 6000,'
-          replacement=original+'\\n        response_format: { type: "json_object" },'
+          replacement=original+chr(10)+'        response_format: { type: "json_object" },'
           assert updated.count(original)==1
           updated=updated.replace(original,replacement)
           assert updated!=old

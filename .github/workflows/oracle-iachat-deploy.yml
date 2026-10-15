@@ -1,4 +1,4 @@
-name: Deploy IAchat Android attachment read fix
+name: Deploy IAchat multimodal history
 on:
   push:
     branches: [prisma/code-agent-json-diagnostics-20261014]
@@ -14,61 +14,48 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 10
     steps:
-      - name: Deploy IAchat web UI with rollback
+      - name: Deploy multimodal IAchat with rollback
         id: deploy
         shell: bash
         run: |
           set -euo pipefail
           cd /home/ubuntu/Proyecto/Aplicaciones/IAchat
-          target=iachat/web.py
-          backup=$(mktemp /tmp/iachat-web.XXXXXXXX.py)
-          candidate=$(mktemp /tmp/iachat-new.XXXXXXXX.py)
-          cp "$target" "$backup"
+          backup=$(mktemp -d /tmp/iachat-multimodal.XXXXXXXX)
           changed=0
           cleanup() {
             rc=$?
             if [ "$rc" -ne 0 ] && [ "$changed" -eq 1 ]; then
-              cp "$backup" "$target"
+              cp "$backup/app.py" iachat/app.py
+              cp "$backup/store.py" iachat/store.py
               sudo -n systemctl restart iachat.service || true
-              echo "IACHAT_ROLLED_BACK"
+              echo "IACHAT_MULTIMODAL_ROLLED_BACK"
             fi
-            rm -f "$backup" "$candidate"
+            rm -rf "$backup"
           }
           trap cleanup EXIT
+          cp iachat/app.py "$backup/app.py"
+          cp iachat/store.py "$backup/store.py"
           GIT_SSH_COMMAND='ssh -i /home/ubuntu/.ssh/github_iachat -o IdentitiesOnly=yes -o StrictHostKeyChecking=yes' git fetch --no-tags git@github.com:lgomezpallo/I.achat.Full.git main
-          git show FETCH_HEAD:iachat/web.py > "$candidate"
-          python3 - "$candidate" <<'PY'
+          git show FETCH_HEAD:iachat/app.py > "$backup/new-app.py"
+          git show FETCH_HEAD:iachat/store.py > "$backup/new-store.py"
+          python3 - "$backup/new-app.py" "$backup/new-store.py" <<'PY'
           import sys
           from pathlib import Path
-          s=Path(sys.argv[1]).read_text()
-          assert 'var selectedFiles=[]' in s
-          assert "IAchat upload failure" in s
-          assert "IAchat display failure after successful send" in s
-          assert "remove.setAttribute('aria-label','Quitar '+f.name)" in s
-          assert "selectedFiles=[];fileInput.value='';imageInput.value='';showSelectedAttachments()" in s
-          assert "className=\'sent-image\'" in s
-          assert "payload.attachments.forEach" in s
-          assert "var selectedFileData=new WeakMap()" in s
-          assert "cacheSelectedFile(f)" in s
-          assert "iachat-shell-v15" in s
-          compile(s, sys.argv[1], 'exec')
-          print("IAchat source validated")
+          for p in sys.argv[1:]:
+              compile(Path(p).read_text(), p, 'exec')
+          assert 'store.images_for_conversation' in Path(sys.argv[1]).read_text()
+          assert 'store.save_images' in Path(sys.argv[1]).read_text()
+          assert 'CREATE TABLE IF NOT EXISTS image_attachments' in Path(sys.argv[2]).read_text()
+          print("IACHAT_MULTIMODAL_SOURCE_VALIDATED")
           PY
-          cp "$candidate" "$target"
+          cp "$backup/new-app.py" iachat/app.py
+          cp "$backup/new-store.py" iachat/store.py
           changed=1
           sudo -n systemctl restart iachat.service
           sleep 3
           systemctl is-active --quiet iachat.service
-          health=$(curl -fsS --max-time 10 http://127.0.0.1:8000/health)
-          printf '%s' "$health" | grep -Fq '"status":"ok"'
-          page=$(mktemp /tmp/iachat-live-page.XXXXXXXX.html)
-          curl -fsS --max-time 10 http://127.0.0.1:8000/ -o "$page"
-          grep -Fq 'var selectedFiles=[]' "$page"
-          grep -Fq 'IAchat upload failure' "$page"
-          grep -Fq 'IAchat display failure after successful send' "$page"
-          grep -Fq "className='sent-image'" "$page"
-          rm -f "$page"
-          echo "IACHAT_ANDROID_ATTACHMENT_READ_FIX_DEPLOY_VERIFIED"
+          curl -fsS --max-time 10 http://127.0.0.1:8000/health | grep -Fq '"status":"ok"'
+          echo "IACHAT_MULTIMODAL_DEPLOY_VERIFIED"
       - name: Publish deployment result to GitHub commit status
         if: ${{ always() }}
         shell: bash

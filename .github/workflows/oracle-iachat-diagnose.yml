@@ -1,0 +1,28 @@
+name: Diagnose IAchat image request
+on:
+  push:
+    branches: [prisma/code-agent-json-diagnostics-20261014]
+    paths: [.github/workflows/oracle-iachat-diagnose.yml]
+permissions:
+  contents: read
+jobs:
+  diagnose:
+    runs-on: [self-hosted, Linux, X64]
+    timeout-minutes: 5
+    steps:
+      - name: Read-only IAchat and proxy diagnosis
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "=== SERVICES ==="
+          systemctl is-active iachat.service router.service || true
+          echo "=== LOCAL HEALTH ==="
+          curl -sS --max-time 8 -o /dev/null -w 'iachat=%{http_code} duration=%{time_total}\n' http://127.0.0.1:8000/health || true
+          curl -sS --max-time 8 -o /dev/null -w 'router=%{http_code} duration=%{time_total}\n' http://127.0.0.1:8010/health || true
+          echo "=== DEPLOYED UI ==="
+          curl -fsS --max-time 8 http://127.0.0.1:8000/ | grep -q 'var selectedFiles=\[\]' && echo "attachment_ui=current" || echo "attachment_ui=old"
+          echo "=== SERVICE ERRORS (FILTERED) ==="
+          sudo -n journalctl -u iachat.service --since '2026-10-15 09:25:00' --until '2026-10-15 10:00:00' --no-pager -o cat 2>/dev/null | grep -Ei 'Traceback|Exception|ERROR|timeout|HTTP/1.1|/api/chat' | sed -E 's/(Bearer|token|key|password)[=: ]+[^ ]+/[REDACTED]/Ig' | tail -35 || true
+          echo "=== PROXY TIMEOUT SETTINGS ==="
+          sudo -n nginx -T 2>/dev/null | grep -E 'proxy_(read|send|connect)_timeout|client_max_body_size' | sort -u || true
+          echo "DIAGNOSIS_COMPLETE"

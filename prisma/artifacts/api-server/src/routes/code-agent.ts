@@ -50,6 +50,7 @@ router.post("/code-agent/patch", async (req, res) => {
       method: "POST", headers: getProviderHeaders(provider),
       body: JSON.stringify({
         model: provider.model, router_capability: "coding", stream: false, max_tokens: 6000,
+        response_format: { type: "json_object" },
         messages: [
           { role: "system", content: "Sos un editor de código. Devolvé EXCLUSIVAMENTE un objeto JSON con las propiedades 'find' y 'replace', ambas strings. 'find' debe ser una secuencia exacta y única presente en el archivo y 'replace' su sustitución completa. No devuelvas markdown. No cambies otros archivos. Si no podés hacerlo con certeza, devolvé {}." },
           { role: "user", content: `TAREA: ${task}\nARCHIVO: ${path}\nCONTENIDO:\n${before}` },
@@ -73,7 +74,9 @@ router.post("/code-agent/patch", async (req, res) => {
     }
     if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
       const finishReason = String(ai.choices?.[0]?.finish_reason ?? "unknown");
-      fail(`Router no produjo un parche JSON válido (finish_reason=${finishReason}, caracteres=${raw.length}).`);
+      const prefix = raw.trim().slice(0, 160);
+      const looksLikeJson = /^[\\s\\x60]*[\\{\\[]/.test(raw);
+      fail(`Router no produjo un parche JSON válido (finish_reason=${finishReason}, caracteres=${raw.length}, parece_json=${looksLikeJson}, inicio=${JSON.stringify(prefix)}).`);
     }
     const after = applyExactPatch(before, patch);
     // Default: preview. Writes require a second explicit opt-in and never reach main.

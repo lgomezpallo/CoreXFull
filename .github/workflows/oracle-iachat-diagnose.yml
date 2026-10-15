@@ -24,7 +24,17 @@ jobs:
           for candidate in /home/ubuntu/Proyecto/Aplicaciones/IAchat/.venv/bin/python /home/ubuntu/Proyecto/Aplicaciones/IAchat/venv/bin/python /home/ubuntu/Proyecto/Aplicaciones/IAchat/.venv/bin/python3 /home/ubuntu/Proyecto/Aplicaciones/IAchat/venv/bin/python3; do
             if [ -x "$candidate" ] && "$candidate" -c 'import httpx' >/dev/null 2>&1; then PYTHON_BIN="$candidate"; break; fi
           done
-          if [ -z "$PYTHON_BIN" ]; then echo 'IACHAT_PYTHON_ENV_NOT_FOUND'; exit 1; fi
+          if [ -z "$PYTHON_BIN" ]; then
+            echo "=== Discover installed IAchat Python ==="
+            while IFS= read -r candidate; do
+              if [ -x "$candidate" ] && "$candidate" -c 'import httpx' >/dev/null 2>&1; then PYTHON_BIN="$candidate"; break; fi
+            done < <(find /home/ubuntu /opt -maxdepth 7 -type f -name python -path '*/bin/python' 2>/dev/null | head -60)
+          fi
+          if [ -z "$PYTHON_BIN" ]; then
+            echo 'IACHAT_PYTHON_ENV_NOT_FOUND'
+            systemctl show iachat.service -p ExecStart -p WorkingDirectory --no-pager
+            exit 1
+          fi
           echo "PYTHON_RUNTIME=$PYTHON_BIN"
           "$PYTHON_BIN" - <<'PY'
           import base64, importlib, os, struct, sys, zlib

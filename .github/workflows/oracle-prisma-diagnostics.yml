@@ -1,0 +1,26 @@
+name: Oracle Prisma diagnostics
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: [self-hosted, linux, x64, oracle-prisma]
+    timeout-minutes: 5
+    steps:
+      - name: Inspect Prisma without modifying services
+        shell: bash
+        run: |
+          set -euo pipefail
+          echo "Architecture: $(uname -m)"
+          free -h
+          df -h /
+          systemctl is-active prisma.service router.service iachat.service || true
+          for port in 8080 8010 8000; do
+            printf 'Local port %s: ' "$port"
+            curl --noproxy '*' --silent --output /dev/null --write-out '%{http_code}\n' --max-time 4 "http://127.0.0.1:$port/health" || true
+          done
+          test -f /home/ubuntu/CoreXFull/prisma/artifacts/api-server/src/routes/code-agent.ts
+          echo "Prisma code-agent file: present"

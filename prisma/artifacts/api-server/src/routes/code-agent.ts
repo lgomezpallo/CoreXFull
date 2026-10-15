@@ -60,9 +60,21 @@ router.post("/code-agent/patch", async (req, res) => {
     const ai: any = await aiResp.json();
     const raw = ai.choices?.[0]?.message?.content;
     if (typeof raw !== "string") fail("Router no devolvió código.");
+    // Parse plain or fenced JSON; tolerate explanatory text outside the object.
+    const cleaned = raw.trim().replace(/^\x60\x60\x60(?:json)?\s*/i, "").replace(/\x60\x60\x60\s*$/, "");
     let patch: any;
-    try { patch = JSON.parse(raw.trim().replace(/^\x60\x60\x60(?:json)?\s*/i, "").replace(/\x60\x60\x60\s*$/, "")); }
-    catch { fail("Router no produjo un parche JSON válido."); }
+    try { patch = JSON.parse(cleaned); }
+    catch {
+      const first = cleaned.indexOf("{");
+      const last = cleaned.lastIndexOf("}");
+      if (first >= 0 && last > first) {
+        try { patch = JSON.parse(cleaned.slice(first, last + 1)); } catch { /* handled below */ }
+      }
+    }
+    if (!patch || typeof patch !== "object" || Array.isArray(patch)) {
+      const finishReason = String(ai.choices?.[0]?.finish_reason ?? "unknown");
+      fail(`Router no produjo un parche JSON válido (finish_reason=${finishReason}, caracteres=${raw.length}).`);
+    }
     const after = applyExactPatch(before, patch);
     // Default: preview. Writes require a second explicit opt-in and never reach main.
     if (!apply) return res.json({ applied: false, repository: `${owner}/${repo}`, path, branch,

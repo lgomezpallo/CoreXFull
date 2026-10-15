@@ -29,6 +29,8 @@ jobs:
           done
           test -f /home/ubuntu/CoreXFull/prisma/artifacts/api-server/src/routes/code-agent.ts
           echo "Prisma code-agent file: present"
+          echo "Runner systemd state:"
+          systemctl is-active actions.runner.lgomezpallo-CoreXFull.instance-20261010-0843.service
           echo "Node: $(node --version 2>/dev/null || echo unavailable)"
           echo "pnpm: $(pnpm --version 2>/dev/null || echo unavailable)"
           echo "Local source revision:"

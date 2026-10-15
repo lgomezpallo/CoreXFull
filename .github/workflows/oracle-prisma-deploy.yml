@@ -34,7 +34,7 @@ jobs:
             rm -f "$backup"
           }
           trap rollback EXIT
-          curl -fsSL --max-time 30 -o /tmp/prisma-parser-source-$$.ts "https://raw.githubusercontent.com/lgomezpallo/CoreXFull/e8901207d7b0eb4b1f605725c30dbc7b33c5b2c9/prisma/artifacts/api-server/src/routes/code-agent.ts"
+          curl -fsSL --max-time 30 -o /tmp/prisma-parser-source-$$.ts "https://raw.githubusercontent.com/lgomezpallo/CoreXFull/a192c44dbdca45810e894472be7c1c8d8451de6d/prisma/artifacts/api-server/src/routes/code-agent.ts"
           python3 - "$target" "/tmp/prisma-parser-source-$$.ts" <<'PY'
           import sys
           from pathlib import Path
@@ -47,6 +47,10 @@ jobs:
           a=old.index(start); b=old.index(end,a)
           x=new.index("    // Parse plain or fenced JSON;"); y=new.index(end,x)
           updated=old[:a]+new[x:y]+old[b:]
+          original='model: provider.model, router_capability: "coding", stream: false, max_tokens: 6000,'
+          replacement=original+'\\n        response_format: { type: "json_object" },'
+          assert updated.count(original)==1
+          updated=updated.replace(original,replacement)
           assert updated!=old
           local.write_text(updated)
           print("Targeted parser update applied")

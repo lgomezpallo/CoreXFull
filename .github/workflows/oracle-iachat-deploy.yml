@@ -5,6 +5,7 @@ on:
     paths: [.github/workflows/oracle-iachat-deploy.yml]
 permissions:
   contents: read
+  statuses: write
 concurrency:
   group: oracle-iachat-deploy
   cancel-in-progress: false
@@ -14,6 +15,7 @@ jobs:
     timeout-minutes: 10
     steps:
       - name: Deploy IAchat web UI with rollback
+        id: deploy
         shell: bash
         run: |
           set -euo pipefail
@@ -60,3 +62,37 @@ jobs:
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat display failure after successful send'
           curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q "className=\'sent-image\'"
           echo "IACHAT_IMAGE_PREVIEWS_DEPLOY_VERIFIED"
+      - name: Publish deployment result to GitHub commit status
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          DEPLOY_OUTCOME: ${{ steps.deploy.outcome }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          set -euo pipefail
+          if [ "$DEPLOY_OUTCOME" = "success" ]; then
+            state=success
+            description="IAchat deploy and live health checks passed"
+          else
+            state=failure
+            description="IAchat deploy failed or was rolled back"
+          fi
+          python3 - "$state" "$description" <<'PY'
+          import json, os, sys, urllib.request
+          state, description = sys.argv[1:]
+          url = "https://api.github.com/repos/" + os.environ["REPOSITORY"] + "/statuses/" + os.environ["COMMIT_SHA"]
+          payload = json.dumps({"state": state, "context": "oracle/iachat-deploy", "description": description, "target_url": os.environ["RUN_URL"]}).encode()
+          req = urllib.request.Request(url, data=payload, method="POST", headers={
+              "Authorization": "Bearer " + os.environ["GH_TOKEN"],
+              "Accept": "application/vnd.github+json",
+              "X-GitHub-Api-Version": "2022-11-28",
+              "Content-Type": "application/json",
+          })
+          with urllib.request.urlopen(req, timeout=20) as response:
+              if response.status != 201:
+                  raise RuntimeError("GitHub commit status API returned " + str(response.status))
+          print("IACHAT_DEPLOY_STATUS_PUBLISHED", state)
+          PY

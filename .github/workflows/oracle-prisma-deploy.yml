@@ -28,7 +28,7 @@ jobs:
               echo "Deployment failed; restoring original Prisma source and build"
               cp "$backup" "$target"
               sudo -n install -d -o ubuntu -g ubuntu artifacts/api-server/dist
-          sudo -n chown -R ubuntu:ubuntu artifacts/api-server/dist
+              sudo -n chown -R ubuntu:ubuntu artifacts/api-server/dist
               pnpm --filter @workspace/api-server build || true
               if [ "$deployed" -eq 1 ]; then sudo -n systemctl restart prisma.service || true; fi
             fi

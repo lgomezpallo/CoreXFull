@@ -1,4 +1,4 @@
-name: Test IAchat vision across consecutive images
+name: Inspect latest IAchat conversation (read-only)
 on:
   push:
     branches: [prisma/code-agent-json-diagnostics-20261014]
@@ -11,100 +11,55 @@ jobs:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     steps:
-      - name: Read-only IAchat and proxy diagnosis
+      - name: Inspect latest admin conversation without image bytes
         id: diagnose
         shell: bash
         run: |
           set -euo pipefail
-          echo "=== SERVICES ==="
-          systemctl is-active iachat.service router.service
-          echo "=== REAL VISION TEST VIA IAchat BACKEND ==="
-          cd /home/ubuntu/Proyecto/Aplicaciones/IAchat
-          echo '=== PYTHON RUNTIMES ==='
-          systemctl show iachat.service -p ExecStart -p WorkingDirectory --no-pager | sed -E 's/(password|token|key)=[^ ;]+/\\1=[REDACTED]/Ig'
-          PYTHON_BIN=''
-          for candidate in /home/ubuntu/Proyecto/Aplicaciones/IAchat/.venv/bin/python /home/ubuntu/Proyecto/Aplicaciones/IAchat/venv/bin/python /home/ubuntu/Proyecto/Aplicaciones/IAchat/.venv/bin/python3 /home/ubuntu/Proyecto/Aplicaciones/IAchat/venv/bin/python3; do
-            if [ -x "$candidate" ] && "$candidate" -c 'import httpx' >/dev/null 2>&1; then PYTHON_BIN="$candidate"; break; fi
-          done
-          if [ -z "$PYTHON_BIN" ]; then
-            echo "=== Discover installed IAchat Python ==="
-            while IFS= read -r candidate; do
-              if [ -x "$candidate" ] && "$candidate" -c 'import httpx' >/dev/null 2>&1; then PYTHON_BIN="$candidate"; break; fi
-            done < <(find /home/ubuntu /opt -maxdepth 7 -type f -name python -path '*/bin/python' 2>/dev/null | head -60)
-          fi
-          if [ -z "$PYTHON_BIN" ]; then
-            echo 'IACHAT_PYTHON_ENV_NOT_FOUND'
-            systemctl show iachat.service -p ExecStart -p WorkingDirectory --no-pager
-            exit 1
-          fi
-          echo "PYTHON_RUNTIME=$PYTHON_BIN"
-          "$PYTHON_BIN" - <<'PY'
-          import base64, importlib, os, struct, sys, zlib
+          python3 - <<'PY'
+          import json, sqlite3, os
           from pathlib import Path
-          from time import monotonic
-          def png(rgb):
-              def chunk(tag, data):
-                  return struct.pack(">I",len(data))+tag+data+struct.pack(">I",zlib.crc32(tag+data)&0xffffffff)
-              w=h=12
-              raw=b"".join(bytes([0])+bytes(rgb)*w for _ in range(h))
-              return bytes([137,80,78,71,13,10,26,10])+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
-          from iachat.attachments import extract_images
-          from types import SimpleNamespace
-          red=base64.b64encode(png((255,0,0))).decode()
-          blue=base64.b64encode(png((0,0,255))).decode()
-          images,names=extract_images([SimpleNamespace(name="test-red.png",content_base64=red)])
-          images2,names2=extract_images([SimpleNamespace(name="test-blue.png",content_base64=blue)])
-          print("IMAGE_VALIDATION_OK",names,names2,flush=True)
-          from iachat.backend import RouterFirstBackend
-          env_file=Path("/etc/iachat-router.env")
-          if env_file.exists():
-              import subprocess
-              config_text = subprocess.run(["sudo", "-n", "cat", str(env_file)], capture_output=True, text=True, check=True).stdout
-              for line in config_text.splitlines():
-                  if line.startswith("ROUTER_TOKEN="):
-                      os.environ["ROUTER_TOKEN"]=line.partition("=")[2].strip().strip('"').strip("'")
-                  if line.startswith("ROUTER_URL="):
-                      os.environ["ROUTER_URL"]=line.partition("=")[2].strip().strip('"').strip("'")
-          os.environ.setdefault("ROUTER_URL","http://127.0.0.1:8010")
-          start=monotonic()
-          question="¿De qué color es el cuadrado de esta imagen? Respondé con una sola palabra."
-          backend=RouterFirstBackend(timeout_s=45)
-          try:
-              first=backend.answer([{"role":"user","content":question}],images=images)
-              print("FIRST_IMAGE_ANSWER",repr(first[:100]),flush=True)
-              second=backend.answer([
-                  {"role":"user","content":question},
-                  {"role":"assistant","content":first},
-                  {"role":"user","content":question},
-              ],images=images2)
-              print("SECOND_IMAGE_ANSWER",repr(second[:100]),flush=True)
-              import re
-              def matches_color(answer, word):
-                  return bool(re.search(r"\b"+word+r"\b",answer.casefold()))
-              if not matches_color(first,"rojo") or not matches_color(second,"azul"):
-                  raise AssertionError("vision_consecutive_images_incorrect")
-              print("VISION_CONSECUTIVE_IMAGES_OK",round(monotonic()-start,1),flush=True)
-          except Exception as exc:
-              print("VISION_CONSECUTIVE_IMAGES_FAILED",type(exc).__name__,str(exc)[:120],flush=True)
-              sys.exit(1)
+          candidates = [Path('/home/ubuntu/Proyecto/Datos/IAchat/iachat.db'),Path('/home/ubuntu/Proyecto/Aplicaciones/IAchat/iachat.db')]
+          candidates += list(Path('/home/ubuntu/Proyecto/Datos/IAchat').glob('*.db')) if Path('/home/ubuntu/Proyecto/Datos/IAchat').exists() else []
+          found=False
+          for db in dict.fromkeys(candidates):
+              if not db.is_file(): continue
+              try:
+                  con=sqlite3.connect('file:'+str(db)+'?mode=ro',uri=True)
+                  tables={r[0] for r in con.execute("SELECT name FROM sqlite_master WHERE type='table'")}
+                  if not {'conversations','conversation_index'}.issubset(tables): continue
+                  row=con.execute("SELECT c.id,c.history,i.updated_at FROM conversations c JOIN conversation_index i ON c.id=i.id WHERE c.owner='admin' AND i.owner='admin' ORDER BY i.updated_at DESC LIMIT 1").fetchone()
+                  if not row: continue
+                  found=True
+                  print('LATEST_CONVERSATION_FOUND',flush=True)
+                  cid,raw,_=row
+                  history=json.loads(raw)
+                  print('MESSAGE_COUNT',len(history),flush=True)
+                  for index,m in list(enumerate(history))[-12:]:
+                      content=str(m.get('content','')).replace('\n',' ')
+                      print('TURN',index,'ROLE',m.get('role'),'TEXT',repr(content[:600]),flush=True)
+                  if 'image_attachments' in tables:
+                      records=con.execute("SELECT message_index,filename,length(data_url) FROM image_attachments WHERE conversation_id=? AND owner='admin' ORDER BY message_index",(cid,)).fetchall()
+                      print('IMAGE_METADATA',repr(records[-12:]),flush=True)
+                  break
+              except (sqlite3.Error,ValueError) as e:
+                  print('DB_READ_ERROR',type(e).__name__,flush=True)
+          if not found: raise SystemExit('NO_ADMIN_CONVERSATION_FOUND')
           PY
-      - name: Publish vision test result
+      - name: Publish diagnostic status
         if: ${{ always() }}
         shell: bash
         env:
           GH_TOKEN: ${{ github.token }}
-          TEST_OUTCOME: ${{ steps.diagnose.outcome }}
+          OUTCOME: ${{ steps.diagnose.outcome }}
           COMMIT_SHA: ${{ github.sha }}
           REPOSITORY: ${{ github.repository }}
           RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
           python3 - <<'PY'
-          import json, os, urllib.request
-          state = "success" if os.environ["TEST_OUTCOME"] == "success" else "failure"
-          url = "https://api.github.com/repos/" + os.environ["REPOSITORY"] + "/statuses/" + os.environ["COMMIT_SHA"]
-          payload = json.dumps({"state":state,"context":"oracle/iachat-vision-consecutive","description":"Two consecutive different images: "+state,"target_url":os.environ["RUN_URL"]}).encode()
-          req = urllib.request.Request(url,data=payload,method="POST",headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","Content-Type":"application/json"})
-          with urllib.request.urlopen(req,timeout=20) as response:
-              assert response.status == 201
-          print("VISION_STATUS_PUBLISHED",state)
+          import json,os,urllib.request
+          state='success' if os.environ['OUTCOME']=='success' else 'failure'
+          payload=json.dumps({'state':state,'context':'oracle/iachat-conversation-inspection','description':'Read-only recent conversation diagnosis: '+state,'target_url':os.environ['RUN_URL']}).encode()
+          req=urllib.request.Request('https://api.github.com/repos/'+os.environ['REPOSITORY']+'/statuses/'+os.environ['COMMIT_SHA'],data=payload,method='POST',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json','Content-Type':'application/json'})
+          with urllib.request.urlopen(req,timeout=20) as resp: assert resp.status==201
           PY

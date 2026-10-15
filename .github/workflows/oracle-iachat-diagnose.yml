@@ -1,16 +1,18 @@
-name: Test IAchat Router vision end-to-end
+name: Test IAchat vision across consecutive images
 on:
   push:
     branches: [prisma/code-agent-json-diagnostics-20261014]
     paths: [.github/workflows/oracle-iachat-diagnose.yml]
 permissions:
   contents: read
+  statuses: write
 jobs:
   diagnose:
     runs-on: [self-hosted, Linux, X64]
     timeout-minutes: 5
     steps:
       - name: Read-only IAchat and proxy diagnosis
+        id: diagnose
         shell: bash
         run: |
           set -euo pipefail
@@ -40,17 +42,19 @@ jobs:
           import base64, importlib, os, struct, sys, zlib
           from pathlib import Path
           from time import monotonic
-          def png():
+          def png(rgb):
               def chunk(tag, data):
                   return struct.pack(">I",len(data))+tag+data+struct.pack(">I",zlib.crc32(tag+data)&0xffffffff)
               w=h=12
-              raw=b"".join(bytes([0])+bytes([255,0,0])*w for _ in range(h))
+              raw=b"".join(bytes([0])+bytes(rgb)*w for _ in range(h))
               return bytes([137,80,78,71,13,10,26,10])+chunk(b"IHDR",struct.pack(">IIBBBBB",w,h,8,2,0,0,0))+chunk(b"IDAT",zlib.compress(raw))+chunk(b"IEND",b"")
           from iachat.attachments import extract_images
           from types import SimpleNamespace
-          payload=base64.b64encode(png()).decode()
-          images,names=extract_images([SimpleNamespace(name="test-red.png",content_base64=payload)])
-          print("IMAGE_VALIDATION_OK",names,flush=True)
+          red=base64.b64encode(png((255,0,0))).decode()
+          blue=base64.b64encode(png((0,0,255))).decode()
+          images,names=extract_images([SimpleNamespace(name="test-red.png",content_base64=red)])
+          images2,names2=extract_images([SimpleNamespace(name="test-blue.png",content_base64=blue)])
+          print("IMAGE_VALIDATION_OK",names,names2,flush=True)
           from iachat.backend import RouterFirstBackend
           env_file=Path("/etc/iachat-router.env")
           if env_file.exists():
@@ -63,10 +67,44 @@ jobs:
                       os.environ["ROUTER_URL"]=line.partition("=")[2].strip().strip('"').strip("'")
           os.environ.setdefault("ROUTER_URL","http://127.0.0.1:8010")
           start=monotonic()
+          question="¿De qué color es el cuadrado de esta imagen? Respondé con una sola palabra."
+          backend=RouterFirstBackend(timeout_s=45)
           try:
-              answer=RouterFirstBackend(timeout_s=45).answer([{"role":"user","content":"¿De qué color es el cuadrado de esta imagen? Respondé en una frase breve."}],images=images)
-              print("VISION_TEST_OK", "elapsed_seconds",round(monotonic()-start,1),"answer",answer[:180],flush=True)
+              first=backend.answer([{"role":"user","content":question}],images=images)
+              print("FIRST_IMAGE_ANSWER",repr(first[:100]),flush=True)
+              second=backend.answer([
+                  {"role":"user","content":question},
+                  {"role":"assistant","content":first},
+                  {"role":"user","content":question},
+              ],images=images2)
+              print("SECOND_IMAGE_ANSWER",repr(second[:100]),flush=True)
+              import re
+              def matches_color(answer, word):
+                  return bool(re.search(r"\\b"+word+r"\\b",answer.casefold()))
+              if not matches_color(first,"rojo") or not matches_color(second,"azul"):
+                  raise AssertionError("vision_consecutive_images_incorrect")
+              print("VISION_CONSECUTIVE_IMAGES_OK",round(monotonic()-start,1),flush=True)
           except Exception as exc:
-              print("VISION_TEST_FAILED","elapsed_seconds",round(monotonic()-start,1),"error_type",type(exc).__name__,"error_code",str(exc)[:120],flush=True)
+              print("VISION_CONSECUTIVE_IMAGES_FAILED",type(exc).__name__,str(exc)[:120],flush=True)
               sys.exit(1)
+          PY
+      - name: Publish vision test result
+        if: ${{ always() }}
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TEST_OUTCOME: ${{ steps.diagnose.outcome }}
+          COMMIT_SHA: ${{ github.sha }}
+          REPOSITORY: ${{ github.repository }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request
+          state = "success" if os.environ["TEST_OUTCOME"] == "success" else "failure"
+          url = "https://api.github.com/repos/" + os.environ["REPOSITORY"] + "/statuses/" + os.environ["COMMIT_SHA"]
+          payload = json.dumps({"state":state,"context":"oracle/iachat-vision-consecutive","description":"Two consecutive different images: "+state,"target_url":os.environ["RUN_URL"]}).encode()
+          req = urllib.request.Request(url,data=payload,method="POST",headers={"Authorization":"Bearer "+os.environ["GH_TOKEN"],"Accept":"application/vnd.github+json","Content-Type":"application/json"})
+          with urllib.request.urlopen(req,timeout=20) as response:
+              assert response.status == 201
+          print("VISION_STATUS_PUBLISHED",state)
           PY

@@ -56,11 +56,15 @@ jobs:
           sudo -n systemctl restart iachat.service
           sleep 3
           systemctl is-active --quiet iachat.service
-          curl -fsS --max-time 10 http://127.0.0.1:8000/health | grep -q '"status":"ok"'
-          curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'var selectedFiles=\[\]'
-          curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat upload failure'
-          curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q 'IAchat display failure after successful send'
-          curl -fsS --max-time 10 http://127.0.0.1:8000/ | grep -q "className=\'sent-image\'"
+          health=$(curl -fsS --max-time 10 http://127.0.0.1:8000/health)
+          printf '%s' "$health" | grep -Fq '"status":"ok"'
+          page=$(mktemp /tmp/iachat-live-page.XXXXXXXX.html)
+          curl -fsS --max-time 10 http://127.0.0.1:8000/ -o "$page"
+          grep -Fq 'var selectedFiles=[]' "$page"
+          grep -Fq 'IAchat upload failure' "$page"
+          grep -Fq 'IAchat display failure after successful send' "$page"
+          grep -Fq "className='sent-image'" "$page"
+          rm -f "$page"
           echo "IACHAT_IMAGE_PREVIEWS_DEPLOY_VERIFIED"
       - name: Publish deployment result to GitHub commit status
         if: ${{ always() }}

@@ -347,3 +347,7 @@ export function corexToolStatus() {
     optimisticLocking: true,
   };
 }
+
+// General-purpose repository operations. Legacy CoreX helpers remain for compatibility.
+export { prismaReadRepositoryFile, prismaUpdateRepositoryFile } from "./prisma-github-workspace";
+export { listPrismaGithubRepositories } from "./prisma-github-repositories";

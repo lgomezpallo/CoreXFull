@@ -96,6 +96,11 @@ export async function runPrismaCorexAgent(input: {
     .find((message) => message.role === "user")?.content?.trim() ?? "";
 
   if (latest) {
+    // Explicit cross-repository requests belong to v3's scoped GitHub handler.
+    // Never let the legacy CoreX heuristic redirect them into corex/.
+    if (/(?:repo(?:sitorio)?):\s*lgomezpallo\//i.test(latest) || /^(?:listar|mostr[aá]|ver|cu[aá]les).*repositorios/i.test(latest)) {
+      return runPrismaCorexAgentV3(input);
+    }
     const exact = await tryExactReplacement(latest);
     if (exact) return exact;
   }

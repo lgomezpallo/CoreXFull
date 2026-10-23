@@ -690,28 +690,28 @@ export async function runPrismaCorexAgent(input: {
 
   // Explicit repository targeting takes precedence over legacy CoreX routing.
   // The model never chooses an arbitrary GitHub account: workspace tools verify ownership.
-  const selected = latest.match(/(?:repo(?:sitorio)?):\\s*(lgomezpallo\\/[a-z0-9._-]+)/i);
+  const selected = latest.match(/(?:repo(?:sitorio)?):\s*(lgomezpallo\/[a-z0-9._-]+)/i);
   if (/^(?:listar|mostr[aá]|ver|cu[aá]les).*repositorios/i.test(latest)) {
     const repos = await listPrismaGithubRepositories();
     return repos.length
-      ? repos.map((repo) => `${repo.fullName} (${repo.private ? "privado" : "público"}; ${repo.canPush ? "escritura" : "lectura"})`).join("\\n")
+      ? repos.map((repo) => `${repo.fullName} (${repo.private ? "privado" : "público"}; ${repo.canPush ? "escritura" : "lectura"})`).join("\n")
       : "No encontré repositorios accesibles con las credenciales actuales.";
   }
   if (selected) {
     const repository = selected[1];
-    const match = latest.match(/(?:archivo|ruta|path):\\s*([^\\n\\r]+)/i);
+    const match = latest.match(/(?:archivo|ruta|path):\s*([^\n\r]+)/i);
     if (!match) return "Indicame el archivo con 'archivo: ruta/del/archivo' y el repositorio con 'repo: lgomezpallo/nombre'.";
     const file = await prismaReadRepositoryFile(repository, match[1].trim());
     if (!wantsMutation(input.messages, latest)) {
-      return `Leí ${file.repository}/${file.path} (SHA ${file.sha}).\\n\\n` +
+      return `Leí ${file.repository}/${file.path} (SHA ${file.sha}).\n\n` +
         await callRouter(input.provider, [
           { role: "system", content: "Sos Prisma, programadora. Respondé basándote sólo en el archivo leído. No inventes ejecuciones." },
-          { role: "user", content: `PEDIDO: ${latest.slice(0, 1600)}\\nARCHIVO:\\n${file.content.slice(0, 20000)}` },
+          { role: "user", content: `PEDIDO: ${latest.slice(0, 1600)}\nARCHIVO:\n${file.content.slice(0, 20000)}` },
         ], 900, "coding");
     }
     const change = await callRouterJson(input.provider, [
       { role: "system", content: "Proponé una edición mínima a un archivo. Devolvé únicamente JSON válido con message, find y replace. find debe ser un bloque exacto y único del archivo; replace su reemplazo. No agregues explicaciones." },
-      { role: "user", content: `PEDIDO: ${latest.slice(0, 1800)}\\nARCHIVO: ${file.path}\\nCONTENIDO:\\n${file.content.slice(0, 20000)}` },
+      { role: "user", content: `PEDIDO: ${latest.slice(0, 1800)}\nARCHIVO: ${file.path}\nCONTENIDO:\n${file.content.slice(0, 20000)}` },
     ], 1800, "coding");
     const find = typeof change.find === "string" ? change.find : "";
     const replace = typeof change.replace === "string" ? change.replace : "";

@@ -180,6 +180,16 @@ async function writeViaSsh(input: {
         throw new Error("El archivo cambió desde que Prisma lo leyó. Debe releerlo antes de escribir.");
       }
     } else {
+      // SSH creation must not overwrite an existing file.
+      const { stat } = await import("node:fs/promises");
+      try {
+        await stat(target);
+        throw new Error("El archivo ya existe. Prisma debe leerlo antes de editarlo.");
+      } catch (error) {
+        if (!(error && typeof error === "object" && "code" in error && error.code === "ENOENT")) {
+          throw error;
+        }
+      }
       await mkdir(dirname(target), { recursive: true });
     }
 

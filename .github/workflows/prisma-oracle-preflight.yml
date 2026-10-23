@@ -1,0 +1,54 @@
+name: Prisma Oracle - preflight
+on:
+  workflow_dispatch:
+permissions:
+  contents: read
+jobs:
+  preflight:
+    runs-on: ubuntu-latest
+    timeout-minutes: 6
+    environment: oracle-production
+    steps:
+      - name: Verify Oracle connection and Prisma (read only)
+        env:
+          ORACLE_HOST: ${{ secrets.ORACLE_HOST }}
+          ORACLE_USER: ${{ secrets.ORACLE_USER }}
+          ORACLE_SSH_KEY: ${{ secrets.ORACLE_SSH_KEY }}
+          ORACLE_HOST_FINGERPRINT: ${{ secrets.ORACLE_HOST_FINGERPRINT }}
+        run: |
+          set -euo pipefail
+          for name in ORACLE_HOST ORACLE_USER ORACLE_SSH_KEY ORACLE_HOST_FINGERPRINT; do
+            if [ -z "${!name:-}" ]; then
+              echo "::error::Missing $name in oracle-production"
+              exit 1
+            fi
+          done
+          install -d -m 700 "$HOME/.ssh"
+          key="$(mktemp "$HOME/.ssh/key.XXXXXX")"
+          known="$(mktemp "$HOME/.ssh/known.XXXXXX")"
+          trap 'rm -f "$key" "$known"' EXIT
+          printf '%s\n' "$ORACLE_SSH_KEY" > "$key"
+          chmod 600 "$key"
+          ssh-keyscan -T 10 -t ed25519 "$ORACLE_HOST" 2>/dev/null > "$known"
+          actual="$(ssh-keygen -lf "$known" -E sha256 | awk '{print $2}' | head -1)"
+          if [ "$actual" != "$ORACLE_HOST_FINGERPRINT" ]; then
+            echo "::error::SSH host fingerprint mismatch"
+            exit 1
+          fi
+          ssh -i "$key" -o IdentitiesOnly=yes -o BatchMode=yes -o StrictHostKeyChecking=yes -o UserKnownHostsFile="$known" -o ConnectTimeout=15 "$ORACLE_USER@$ORACLE_HOST" 'bash -s' <<'REMOTE'
+          set -euo pipefail
+          echo "== Prisma service =="
+          systemctl is-active prisma
+          echo "== Prisma process =="
+          systemctl show prisma --property=WorkingDirectory --property=ExecStart --no-pager
+          echo "== Health =="
+          curl -fsS --max-time 10 http://127.0.0.1:8080/api/healthz
+          echo
+          echo "== Repository state =="
+          if [ -d /home/ubuntu/CoreXFull/prisma ]; then
+            git -C /home/ubuntu/CoreXFull log -1 --format='%h %ci %s'
+            git -C /home/ubuntu/CoreXFull status --short
+          else
+            echo "Expected Prisma source directory not found"
+          fi
+          REMOTE
